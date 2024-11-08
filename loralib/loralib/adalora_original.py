@@ -1,3 +1,7 @@
+#  ------------------------------------------------------------------------------------------
+#  Copyright (c) Microsoft Corporation. All rights reserved.
+#  Licensed under the MIT License (MIT). See LICENSE in the repo root for license information.
+#  ------------------------------------------------------------------------------------------
 import math
 import torch
 import torch.nn as nn
@@ -7,6 +11,7 @@ from .layers import LoRALayer
 from typing import Optional, List
 
 import numpy as np
+import matplotlib.pyplot as plt
 
 class SVDLinear(nn.Linear, LoRALayer):
     # SVD-based adaptation implemented in a dense layer
@@ -127,13 +132,8 @@ class RankAllocator(object):
         total_step:Optional[int]=None, 
         target_total_rank:Optional[int]=None,
         tb_writter=None,
-        tb_writter_loginterval:int=500,
-        k: int = 2,
-        b: int = 2,
+        tb_writter_loginterval:int=500, 
     ):
-        self.k = k
-        self.b = b
-
         self.ave_target_rank = target_rank 
         self.target_rank = target_total_rank
         self.lora_init_rank = lora_r 
@@ -184,6 +184,32 @@ class RankAllocator(object):
         if self.target_rank is None:
             self.target_rank = self.ave_target_rank * len(self.name_set) 
 
+    def schedule_threshold(self, step:int):
+        # Global budget schedule
+        mask_ind = False 
+        target_rank = self.target_rank 
+        initial_warmup = self.initial_warmup 
+        final_warmup = self.final_warmup 
+        total_step = self.total_step 
+        self.global_step = step
+        if step <= initial_warmup: 
+            # Initial warmup 
+            curr_rank = self.total_rank 
+            mask_ind = False 
+        elif step > total_step - final_warmup: 
+            # Final fine-tuning 
+            curr_rank = self.target_rank 
+            # Fix the rank pattern by 
+            # always masking the same unimportant singluar values 
+            mask_ind = True 
+        else: 
+            # Budget decreasing 
+            mul_coeff = 1-(step-initial_warmup)/(total_step-final_warmup-initial_warmup)
+            curr_rank = target_rank + (self.total_rank-target_rank)*(mul_coeff**3)
+            curr_rank = int(curr_rank)
+            mask_ind = True if step % self.mask_interval == 0 else False 
+        return curr_rank, mask_ind 
+
 
     def update_ipt(self, model): 
         for n,p in model.named_parameters():
@@ -217,105 +243,92 @@ class RankAllocator(object):
         sum_ipt = ipt_E.view(-1) + ipt_AB.view(-1)
         return sum_ipt
 
-    def mask_to_target_rank(self, model, curr_rank):
+    def mask_to_target_rank(self, model, curr_rank): 
         is_dict = {}
         combine_dict = {} 
         singular_dict = {}
-
-        lora_A_list = []
-        lora_B_list = []
-        lora_E_list = []
-
-        lora_A_names = []
-        lora_B_names = []
-        lora_E_names = []
-
         # Calculate the importance score for each sub matrix 
-        for n, p in model.named_parameters(): 
+        for n,p in model.named_parameters(): 
             if "lora_A" in n: 
-                lora_A_list.append(p)
-                lora_A_names.append(n)
                 rdim, hdim_a = p.shape
                 ipt_score = self.calculate_score(n, metric="ipt")
                 comb_ipt = torch.mean(ipt_score, dim=1, keepdim=True)
                 name_mat = n.replace("lora_A", "%s")
-                combine_dict.setdefault(name_mat, []).append(comb_ipt)
-            elif "lora_B" in n: 
-                lora_B_list.append(p)
-                lora_B_names.append(n)
+                if name_mat not in combine_dict: 
+                    combine_dict[name_mat] = [comb_ipt]
+                else:
+                    combine_dict[name_mat].append(comb_ipt)
+            if "lora_B" in n: 
                 hdim_b, rdim = p.shape 
                 ipt_score = self.calculate_score(n, metric="ipt")
                 comb_ipt = torch.mean(ipt_score, dim=0, keepdim=False).view(-1, 1)
                 name_mat = n.replace("lora_B", "%s")
-                combine_dict.setdefault(name_mat, []).append(comb_ipt)
-            elif "lora_E" in n:
-                lora_E_list.append(p)
-                lora_E_names.append(n)
+                if name_mat not in combine_dict: 
+                    combine_dict[name_mat] = [comb_ipt]
+                else:
+                    combine_dict[name_mat].append(comb_ipt)
+            if "lora_E" in n:
                 ipt_score = self.calculate_score(n, p=p, metric="ipt")                
                 name_mat = n.replace("lora_E", "%s")
                 singular_dict[name_mat] = ipt_score
-
+        breakpoint()
         # Combine the importance scores 
         all_is = []
         for name_mat in combine_dict: 
             ipt_E = singular_dict[name_mat] 
             ipt_AB = torch.cat(combine_dict[name_mat], dim=1)
             sum_ipt = self._combine_ipt(ipt_E, ipt_AB)
-            name_E = name_mat % "lora_E"
+            name_E = name_mat%"lora_E"
             is_dict[name_E] = sum_ipt.view(-1, 1)
             all_is.append(sum_ipt.view(-1))
 
-        top_k_elements = torch.stack([torch.topk(sublist, self.k, largest=False).values for sublist in all_is])
-        smallest_b_elements = torch.topk(top_k_elements.view(-1), self.b, largest=False).values
-        mask_threshold = smallest_b_elements.max().item()
-        largest_b_elements = torch.topk(top_k_elements.view(-1), self.b, largest=True).values
-        increase_idx = torch.topk(top_k_elements.view(-1), self.b, largest=True).indices
-        increase_idx = [(idx // self.k).item() for idx in increase_idx]
+        # Sort each tensor in all_is in descending order and pad with zeros
+        if self.global_step == 600:
+            sorted_all_is = [torch.sort(tensor, descending=True)[0] for tensor in all_is]
+            max_len = max(tensor.size(0) for tensor in sorted_all_is)
+            padded_all_is = [F.pad(tensor, (0, max_len - tensor.size(0))) for tensor in sorted_all_is]
+
+            # Convert to numpy for plotting
+            padded_all_is_np = [tensor.cpu().numpy() for tensor in padded_all_is]
+
+            # Plotting
+            plt.figure(figsize=(10, 6))
+            for i, scores in enumerate(padded_all_is_np):
+                plt.plot(np.arange(max_len), scores, label=f'Matrix {i}')
+            
+            plt.xlabel('Rank Index')
+            plt.ylabel('Importance Score')
+            plt.title('Importance Score Trends for Each Matrix')
+            plt.legend()
+            plt.savefig(f'importance_scores_step_{self.global_step}.png')
+            plt.close()
+
+
+
+        # Calculate the masking threshold 
+        mask_threshold = torch.kthvalue(torch.cat(all_is), (self.total_rank-curr_rank))[0].item()
 
         # Mask out unimportant singular values 
         with torch.no_grad():
-            for n, p in model.named_parameters():
+            curr_sum_rank = 0
+            sum_param = 0
+            for n,p in model.named_parameters():
                 if "lora_E" in n: 
-                    p.data.masked_fill_(is_dict[n] <= mask_threshold, 0.0)
+                    p.data.masked_fill_(is_dict[n]<=mask_threshold, 0.0)
+                    ranknum = (is_dict[n]>mask_threshold).sum().item() 
 
-        breakpoint()
-        # Increase the rank of the matrix and update model parameters
-        num_matrix = len(lora_A_list)
-        for i in range(num_matrix):
-            if i in increase_idx:
-                matrix_A = lora_A_list[i]  # (r, hdim_a)
-                matrix_B = lora_B_list[i]  # (hdim_b, r)
-                matrix_E = lora_E_list[i]  # (r, 1)
+                    if self.tb_writter is not None and self.global_step%self.log_interval==0:
+                        self.tb_writter.add_scalar("Ranknum/%s"%(n,), ranknum, self.global_step) 
+                        self.rank_pattern[n] = ranknum 
+                        curr_sum_rank += ranknum 
+                        sum_param += ranknum*self.shape_dict[n.replace("lora_E", "lora_A")][1]  
+                        sum_param += ranknum*self.shape_dict[n.replace("lora_E", "lora_B")][0]  
 
-                # Adjusting the size of new_vector to match matrix_A's second dimension
-                new_vector = torch.randn(matrix_A.size(1), device=matrix_A.device)
-                new_vector -= matrix_A.T @ (matrix_A @ new_vector)
-                new_vector /= (new_vector.norm() + 1e-6)
-                new_matrix_A = torch.cat([matrix_A, new_vector.unsqueeze(0)], dim=0)
-
-                # Replace the parameter in the model
-                new_param_A = torch.nn.Parameter(new_matrix_A, requires_grad=True)
-                model.register_parameter(lora_A_names[i], new_param_A)
-
-                # Adjusting the size of new_vector to match matrix_B's first dimension
-                new_vector = torch.randn(matrix_B.size(0), device=matrix_B.device)
-                new_vector -= matrix_B @ (matrix_B.T @ new_vector)
-                new_vector /= (new_vector.norm() + 1e-6)
-                new_matrix_B = torch.cat([matrix_B, new_vector.unsqueeze(1)], dim=1)
-
-                # Replace the parameter in the model
-                new_param_B = torch.nn.Parameter(new_matrix_B, requires_grad=True)
-                model.register_parameter(lora_B_names[i], new_param_B)
-
-                # Adjust matrix_E
-                new_scalar = torch.tensor([min(matrix_E.view(-1).abs().min().item(), 1e-13)], device=matrix_E.device)
-                new_matrix_E = torch.cat([matrix_E, new_scalar.unsqueeze(0)], dim=0)
-                new_param_E = torch.nn.Parameter(new_matrix_E, requires_grad=True)
-                model.register_parameter(lora_E_names[i], new_param_E)
-
+            if self.tb_writter is not None and self.global_step%self.log_interval==0:
+                self.tb_writter.add_scalar("Budget/total_rank", curr_sum_rank, self.global_step)
+                self.tb_writter.add_scalar("Budget/mask_threshold", mask_threshold, self.global_step)
+                self.tb_writter.add_scalar("Budget/sum_param", sum_param, self.global_step)
         return mask_threshold
-
-
 
 
     def update_and_mask(self, model, global_step):
@@ -324,8 +337,33 @@ class RankAllocator(object):
             self.update_ipt(model)
             # do not update ipt during final fine-tuning 
         # Budget schedule
-        mask_threshold = self.mask_to_target_rank(model, 0) 
-        return 0, mask_threshold
+        curr_rank, mask_ind = self.schedule_threshold(global_step)
+        if mask_ind:
+            # Mask to target budget 
+            mask_threshold = self.mask_to_target_rank(model, curr_rank) 
+        else:
+            mask_threshold = None 
+        self._maybe_tb_writter_log(model)
+        return curr_rank, mask_threshold
+
+    def _maybe_tb_writter_log(self, model):
+        if self.tb_writter is not None and self.global_step%self.log_interval==0:
+            with torch.no_grad():
+                regu_loss = []
+                for n,p in model.named_parameters():
+                    if "lora_A" in n or "lora_B" in n:
+                        mat = p.data.detach().clone()
+                        mat_cov = mat @ mat.T if "lora_A" in n else mat.T @ mat 
+                        I = torch.eye(*mat_cov.size(), out=torch.empty_like(mat_cov))
+                        I.requires_grad = False
+                        orth_regu = torch.norm(mat_cov-I, p="fro")
+                        regu_loss.append(orth_regu.item())
+                        self.tb_writter.add_scalar(
+                            "Orth_regu_loss/%s"%n, orth_regu.item(), self.global_step
+                        )
+                self.tb_writter.add_scalar(
+                    "train/orth_regu_loss", sum(regu_loss)/len(regu_loss), self.global_step
+                )
 
 
 def compute_orth_regu(model, regu_weight=0.1):
