@@ -220,13 +220,19 @@ class RankAllocator(object):
         return sum_ipt
 
     def mask_to_target_rank(self, model, curr_rank):
-        breakpoint()
+
         is_dict = {}
         combine_dict = {} 
         singular_dict = {}
+
+        lora_A_list = []
+        lora_B_list = []
+        lora_E_list = []
+
         # Calculate the importance score for each sub matrix 
         for n,p in model.named_parameters(): 
             if "lora_A" in n: 
+                lora_A_list.append(p)
                 rdim, hdim_a = p.shape
                 ipt_score = self.calculate_score(n, metric="ipt")
                 comb_ipt = torch.mean(ipt_score, dim=1, keepdim=True)
@@ -236,6 +242,7 @@ class RankAllocator(object):
                 else:
                     combine_dict[name_mat].append(comb_ipt)
             if "lora_B" in n: 
+                lora_B_list.append(p)
                 hdim_b, rdim = p.shape 
                 ipt_score = self.calculate_score(n, metric="ipt")
                 comb_ipt = torch.mean(ipt_score, dim=0, keepdim=False).view(-1, 1)
@@ -245,6 +252,7 @@ class RankAllocator(object):
                 else:
                     combine_dict[name_mat].append(comb_ipt)
             if "lora_E" in n:
+                lora_E_list.append(p)
                 ipt_score = self.calculate_score(n, p=p, metric="ipt")                
                 name_mat = n.replace("lora_E", "%s")
                 singular_dict[name_mat] = ipt_score
@@ -259,39 +267,46 @@ class RankAllocator(object):
             is_dict[name_E] = sum_ipt.view(-1, 1)
             all_is.append(sum_ipt.view(-1))
 
-
-        top_k_elements = torch.cat([torch.topk(sublist, self.K, largest=False).values for sublist in all_is])
-        smallest_b_elements = torch.topk(top_k_elements, self.b, largest=False).values
+        top_k_elements = torch.stack([torch.topk(sublist, self.k, largest=False).values for sublist in all_is])
+        smallest_b_elements = torch.topk(top_k_elements.view(-1), self.b, largest=False).values
         mask_threshold = smallest_b_elements.max().item()
-        largest_b_elements = torch.topk(top_k_elements, self.b, largest=True).values
-        increase_idx = torch.topk(top_k_elements, self.b, largest=True).indices
+        largest_b_elements = torch.topk(top_k_elements.view(-1), self.b, largest=True).values
+        increase_idx = torch.topk(top_k_elements.view(-1), self.b, largest=True).indices
+        increase_idx = [(idx // self.k).item() for idx in increase_idx]
 
 
         # Mask out unimportant singular values 
         with torch.no_grad():
-            curr_sum_rank = 0
-            sum_param = 0
             for n,p in model.named_parameters():
                 if "lora_E" in n: 
                     p.data.masked_fill_(is_dict[n]<=mask_threshold, 0.0)
-                    ranknum = (is_dict[n]>mask_threshold).sum().item() 
 
+        # breakpoint()
         # Increase the rank of the matrix
-        for idx in increase_idx:
-                for n, p in model.named_parameters():
-                    if "lora_A" in n or "lora_B" in n:
-                        matrix = p.data
-                        new_vector = torch.randn(matrix.size(1), device=matrix.device)
-                        for i in range(matrix.size(0)):
-                            new_vector -= (matrix[i] @ new_vector) * matrix[i]
-                        new_vector /= new_vector.norm()
-                        new_matrix = torch.cat([matrix, new_vector.unsqueeze(0)], dim=0)
-                        p.set_(new_matrix)
+        num_matrix = len(lora_A_list)
+        for i in range(num_matrix):
+            if i in increase_idx:
+                matrix_A = lora_A_list[i] # (r, hdim_a)
+                matrix_B = lora_B_list[i] # (hdim_b, r)
+                matrix_E = lora_E_list[i] # (r, 1)
 
-                    if "lora_E" in n:
-                        new_scalar = torch.tensor([1.0], device=p.data.device)
-                        new_matrix = torch.cat([p.data, new_scalar], dim=0)
-                        p.set_(new_matrix)
+                # Adjusting the size of new_vector to match matrix_A's second dimension
+                new_vector = torch.randn(matrix_A.size(1), device=matrix_A.device)
+                new_vector -= matrix_A.T @ (matrix_A @ new_vector)
+                new_vector /= new_vector.norm()
+                new_matrix = torch.cat([matrix_A, new_vector.unsqueeze(0)], dim=0)
+                lora_A_list[i] = torch.nn.Parameter(new_matrix, requires_grad=True)
+
+                # Adjusting the size of new_vector to match matrix_B's first dimension
+                new_vector = torch.randn(matrix_B.size(0), device=matrix_B.device)
+                new_vector -= matrix_B @ (matrix_B.T @ new_vector)
+                new_vector /= new_vector.norm()
+                new_matrix = torch.cat([matrix_B, new_vector.unsqueeze(1)], dim=1)
+                lora_B_list[i] = torch.nn.Parameter(new_matrix, requires_grad=True)
+
+                new_scalar = torch.tensor([min(matrix_E.view(-1).abs().min().item(), 1e-13)], device=matrix_E.device)
+                new_matrix = torch.cat([matrix_E, new_scalar.unsqueeze(0)], dim=0)
+                lora_E_list[i] = torch.nn.Parameter(new_matrix, requires_grad=True)
         
         return mask_threshold
 
