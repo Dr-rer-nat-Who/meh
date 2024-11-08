@@ -33,7 +33,7 @@ class SVDLinear(nn.Linear, LoRALayer):
             )
             self.lora_E = nn.Parameter(
                 self.weight.new_zeros(r, 1)
-            ) 
+            )
             self.lora_B = nn.Parameter(
                 self.weight.new_zeros((out_features, r))
             )
@@ -88,9 +88,13 @@ class SVDLinear(nn.Linear, LoRALayer):
         if self.r > 0 and not self.merged:
             result = F.linear(x, T(self.weight), bias=self.bias)
             if self.r > 0:
-                result += (
-                    self.lora_dropout(x) @ (self.lora_A * self.lora_E).T @ self.lora_B.T
-                ) * self.scaling / (self.ranknum+1e-5)
+                try:
+                    result += (
+                        self.lora_dropout(x) @ (self.lora_A * self.lora_E).T @ self.lora_B.T
+                    ) * self.scaling / (self.ranknum+1e-5)
+                except Exception as e:
+                    print(e)
+                    breakpoint()
             return result
         else:
             return F.linear(x, T(self.weight), bias=self.bias)
@@ -226,15 +230,10 @@ class RankAllocator(object):
         lora_B_list = []
         lora_E_list = []
 
-        lora_A_names = []
-        lora_B_names = []
-        lora_E_names = []
-
         # Calculate the importance score for each sub matrix 
         for n, p in model.named_parameters(): 
             if "lora_A" in n: 
                 lora_A_list.append(p)
-                lora_A_names.append(n)
                 rdim, hdim_a = p.shape
                 ipt_score = self.calculate_score(n, metric="ipt")
                 comb_ipt = torch.mean(ipt_score, dim=1, keepdim=True)
@@ -242,7 +241,6 @@ class RankAllocator(object):
                 combine_dict.setdefault(name_mat, []).append(comb_ipt)
             elif "lora_B" in n: 
                 lora_B_list.append(p)
-                lora_B_names.append(n)
                 hdim_b, rdim = p.shape 
                 ipt_score = self.calculate_score(n, metric="ipt")
                 comb_ipt = torch.mean(ipt_score, dim=0, keepdim=False).view(-1, 1)
@@ -250,7 +248,6 @@ class RankAllocator(object):
                 combine_dict.setdefault(name_mat, []).append(comb_ipt)
             elif "lora_E" in n:
                 lora_E_list.append(p)
-                lora_E_names.append(n)
                 ipt_score = self.calculate_score(n, p=p, metric="ipt")                
                 name_mat = n.replace("lora_E", "%s")
                 singular_dict[name_mat] = ipt_score
@@ -278,7 +275,6 @@ class RankAllocator(object):
                 if "lora_E" in n: 
                     p.data.masked_fill_(is_dict[n] <= mask_threshold, 0.0)
 
-        breakpoint()
         # Increase the rank of the matrix and update model parameters
         num_matrix = len(lora_A_list)
         for i in range(num_matrix):
@@ -286,32 +282,47 @@ class RankAllocator(object):
                 matrix_A = lora_A_list[i]  # (r, hdim_a)
                 matrix_B = lora_B_list[i]  # (hdim_b, r)
                 matrix_E = lora_E_list[i]  # (r, 1)
-
+                breakpoint()
                 # Adjusting the size of new_vector to match matrix_A's second dimension
-                new_vector = torch.randn(matrix_A.size(1), device=matrix_A.device)
-                new_vector -= matrix_A.T @ (matrix_A @ new_vector)
-                new_vector /= (new_vector.norm() + 1e-6)
-                new_matrix_A = torch.cat([matrix_A, new_vector.unsqueeze(0)], dim=0)
+                with torch.no_grad():
+                    new_vector = torch.randn(matrix_A.size(1), device=matrix_A.device, requires_grad=True)
+                    new_vector = new_vector - matrix_A.T @ (matrix_A @ new_vector)
+                    new_vector = new_vector / (new_vector.norm() + 1e-6)
+                    new_matrix_A = torch.cat([matrix_A, new_vector.unsqueeze(0)], dim=0)
 
-                # Replace the parameter in the model
-                new_param_A = torch.nn.Parameter(new_matrix_A, requires_grad=True)
-                model.register_parameter(lora_A_names[i], new_param_A)
+                # Replace the parameter in the model by matching the parameter tensor directly
+                with torch.no_grad():
+                    for param in model.parameters():
+                        if param is matrix_A:
+                            # import pdb; pdb.set_trace()
+                            param.data = new_matrix_A
 
                 # Adjusting the size of new_vector to match matrix_B's first dimension
-                new_vector = torch.randn(matrix_B.size(0), device=matrix_B.device)
-                new_vector -= matrix_B @ (matrix_B.T @ new_vector)
-                new_vector /= (new_vector.norm() + 1e-6)
-                new_matrix_B = torch.cat([matrix_B, new_vector.unsqueeze(1)], dim=1)
+                with torch.no_grad():
+                    new_vector = torch.randn(matrix_B.size(0), device=matrix_B.device, requires_grad=True)
+                    new_vector = new_vector - matrix_B @ (matrix_B.T @ new_vector)
+                    new_vector = new_vector / (new_vector.norm() + 1e-6)
+                    new_matrix_B = torch.cat([matrix_B, new_vector.unsqueeze(1)], dim=1)
 
-                # Replace the parameter in the model
-                new_param_B = torch.nn.Parameter(new_matrix_B, requires_grad=True)
-                model.register_parameter(lora_B_names[i], new_param_B)
+                # Replace the parameter in the model by matching the parameter tensor directly
+                with torch.no_grad():
+                    for param in model.parameters():
+                        if param is matrix_B:
+                            breakpoint()
+                            # import pdb; pdb.set_trace()
+                            param.data = new_matrix_B
 
                 # Adjust matrix_E
-                new_scalar = torch.tensor([min(matrix_E.view(-1).abs().min().item(), 1e-13)], device=matrix_E.device)
-                new_matrix_E = torch.cat([matrix_E, new_scalar.unsqueeze(0)], dim=0)
-                new_param_E = torch.nn.Parameter(new_matrix_E, requires_grad=True)
-                model.register_parameter(lora_E_names[i], new_param_E)
+                with torch.no_grad():
+                    new_scalar = torch.tensor([min(matrix_E.view(-1).abs().min().item(), 1e-13)], device=matrix_E.device, requires_grad=True)
+                    new_matrix_E = torch.cat([matrix_E, new_scalar.unsqueeze(0)], dim=0)
+
+                with torch.no_grad():
+                    for name, param in model.named_parameters():
+                        if param is matrix_E:
+                            # import pdb; pdb.set_trace()
+                            param.data = new_matrix_E
+                            
 
         return mask_threshold
 
