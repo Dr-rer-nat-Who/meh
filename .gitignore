@@ -1,0 +1,20 @@
+# ignore all the files in NLU/mlruns
+NLU/mlruns/*
+NLU/output/*
+
+# ignore all the python cache files
+*.pyc
+
+# ignore all the files in the .idea folder
+loralib/loralib.egg-info/dependency_links.txt
+loralib/loralib.egg-info/PKG-INFO
+loralib/loralib.egg-info/SOURCES.txt
+loralib/loralib.egg-info/top_level.txt
+
+# ignore all the files in the .idea folder
+NLU/src/transformers.egg-info/dependency_links.txt
+NLU/src/transformers.egg-info/entry_points.txt
+NLU/src/transformers.egg-info/PKG-INFO
+NLU/src/transformers.egg-info/requires.txt
+NLU/src/transformers.egg-info/SOURCES.txt
+NLU/src/transformers.egg-info/top_level.txt
