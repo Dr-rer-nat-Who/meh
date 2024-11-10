@@ -1031,6 +1031,7 @@ class Trainer:
                     break
 
         global_step = 0
+
         for epoch in range(epochs_trained, num_train_epochs):
             if isinstance(train_dataloader, DataLoader) and isinstance(train_dataloader.sampler, DistributedSampler):
                 train_dataloader.sampler.set_epoch(epoch)
@@ -1122,8 +1123,16 @@ class Trainer:
                         self.lr_scheduler.step()
 
                     if self.rankallocator is not None:
-                        # Apply AdaLoRA to allocate the budget 
+                        # Apply ElaLoRA to allocate the budget 
                         curr_rank, mask_threshold = self.rankallocator.update_and_mask(self.model, self.state.global_step)
+                        if mask_threshold is not None:
+                            # update optimizer with new parameters
+                            optimizer_state = self.optimizer.state_dict()  # save the optimizer state
+                            self.optimizer = type(self.optimizer)(self.model.parameters(), **self.optimizer.defaults)  # reinitialize the optimizer
+                            self.optimizer.load_state_dict(optimizer_state)  # load the optimizer state
+                    
+                            if not self.deepspeed:
+                                self.lr_scheduler.step()
 
                     model.zero_grad()
                     self.state.global_step += 1

@@ -309,7 +309,6 @@ class RankAllocator(object):
                 matrix_A = lora_A_list[i]  # (r, hdim_a)
                 matrix_B = lora_B_list[i]  # (hdim_b, r)
                 matrix_E = lora_E_list[i]  # (r, 1)
-                # breakpoint()
                 # Adjusting the size of new_vector to match matrix_A's second dimension
                 with torch.no_grad():
                     new_vector = torch.randn(matrix_A.size(1), device=matrix_A.device, requires_grad=True)
@@ -340,7 +339,6 @@ class RankAllocator(object):
                 with torch.no_grad():
                     # for param in model.parameters():
                     #     if param is matrix_B:
-                    #         breakpoint()
                     #         # import pdb; pdb.set_trace()
                     #         param.data = new_matrix_B
                     for name, param in model.named_parameters():
@@ -367,7 +365,7 @@ class RankAllocator(object):
 
     def update_and_mask(self, model, global_step):
         mask_threshold = None
-        if global_step<self.total_step-self.final_warmup:
+        if self.initial_warmup < global_step < self.total_step-self.final_warmup:
             # Update importance scores element-wise 
             self.update_ipt(model)
             # Budget schedule
