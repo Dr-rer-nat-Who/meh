@@ -94,7 +94,6 @@ class SVDLinear(nn.Linear, LoRALayer):
                     ) * self.scaling / (self.ranknum+1e-5)
                 except Exception as e:
                     print(e)
-                    breakpoint()
             return result
         else:
             return F.linear(x, T(self.weight), bias=self.bias)
@@ -196,6 +195,24 @@ class RankAllocator(object):
                     self.ipt[n] = torch.zeros_like(p)
                     self.exp_avg_ipt[n] = torch.zeros_like(p) 
                     self.exp_avg_unc[n] = torch.zeros_like(p) 
+                                # 检查当前参数和 exp_avg_ipt 的形状差异
+                                # 检查当前参数和 exp_avg_ipt 的形状差异
+                if self.exp_avg_ipt[n].shape != p.shape:
+                    new_shape = list(p.shape)
+                    old_shape = list(self.exp_avg_ipt[n].shape)
+                    
+                    # 针对每个维度判断是否需要扩展
+                    padding = []
+                    for i in range(len(new_shape) - 1, -1, -1):
+                        if old_shape[i] < new_shape[i]:
+                            padding_size = new_shape[i] - old_shape[i]
+                            padding.extend([0, padding_size])
+                        else:
+                            padding.extend([0, 0])
+                    
+                    # 将所有需要扩展的维度进行填充
+                    self.exp_avg_ipt[n] = torch.nn.functional.pad(self.exp_avg_ipt[n], tuple(padding), "constant", 0)
+                    self.exp_avg_unc[n] = torch.nn.functional.pad(self.exp_avg_unc[n], tuple(padding), "constant", 0)
                 with torch.no_grad():
                     # Calculate sensitivity 
                     self.ipt[n] = (p * p.grad).abs().detach()
@@ -275,6 +292,16 @@ class RankAllocator(object):
                 if "lora_E" in n: 
                     p.data.masked_fill_(is_dict[n] <= mask_threshold, 0.0)
 
+
+
+        def set_nested_attr(obj, attr, value):
+            # Set the value of a nested attribute of an object
+            # obj here will be the model
+            attrs = attr.split('.')
+            for attr_name in attrs[:-1]:
+                obj = getattr(obj, attr_name)
+            setattr(obj, attrs[-1], value)
+
         # Increase the rank of the matrix and update model parameters
         num_matrix = len(lora_A_list)
         for i in range(num_matrix):
@@ -282,20 +309,24 @@ class RankAllocator(object):
                 matrix_A = lora_A_list[i]  # (r, hdim_a)
                 matrix_B = lora_B_list[i]  # (hdim_b, r)
                 matrix_E = lora_E_list[i]  # (r, 1)
-                breakpoint()
+                # breakpoint()
                 # Adjusting the size of new_vector to match matrix_A's second dimension
                 with torch.no_grad():
                     new_vector = torch.randn(matrix_A.size(1), device=matrix_A.device, requires_grad=True)
                     new_vector = new_vector - matrix_A.T @ (matrix_A @ new_vector)
                     new_vector = new_vector / (new_vector.norm() + 1e-6)
                     new_matrix_A = torch.cat([matrix_A, new_vector.unsqueeze(0)], dim=0)
+                    new_matrix_A = torch.nn.Parameter(new_matrix_A)
 
                 # Replace the parameter in the model by matching the parameter tensor directly
                 with torch.no_grad():
-                    for param in model.parameters():
+                    # for param in model.parameters():
+                    #     if param is matrix_A:
+                    #         # import pdb; pdb.set_trace()
+                    #         param.data = new_matrix_A
+                    for name, param in model.named_parameters():
                         if param is matrix_A:
-                            # import pdb; pdb.set_trace()
-                            param.data = new_matrix_A
+                            set_nested_attr(model, name, new_matrix_A)  # This is a hacky way to update the model parameter
 
                 # Adjusting the size of new_vector to match matrix_B's first dimension
                 with torch.no_grad():
@@ -303,25 +334,30 @@ class RankAllocator(object):
                     new_vector = new_vector - matrix_B @ (matrix_B.T @ new_vector)
                     new_vector = new_vector / (new_vector.norm() + 1e-6)
                     new_matrix_B = torch.cat([matrix_B, new_vector.unsqueeze(1)], dim=1)
+                    new_matrix_B = torch.nn.Parameter(new_matrix_B)
 
                 # Replace the parameter in the model by matching the parameter tensor directly
                 with torch.no_grad():
-                    for param in model.parameters():
+                    # for param in model.parameters():
+                    #     if param is matrix_B:
+                    #         breakpoint()
+                    #         # import pdb; pdb.set_trace()
+                    #         param.data = new_matrix_B
+                    for name, param in model.named_parameters():
                         if param is matrix_B:
-                            breakpoint()
-                            # import pdb; pdb.set_trace()
-                            param.data = new_matrix_B
+                            set_nested_attr(model, name, new_matrix_B)
 
                 # Adjust matrix_E
                 with torch.no_grad():
                     new_scalar = torch.tensor([min(matrix_E.view(-1).abs().min().item(), 1e-13)], device=matrix_E.device, requires_grad=True)
                     new_matrix_E = torch.cat([matrix_E, new_scalar.unsqueeze(0)], dim=0)
+                    new_matrix_E = torch.nn.Parameter(new_matrix_E)
 
                 with torch.no_grad():
                     for name, param in model.named_parameters():
                         if param is matrix_E:
                             # import pdb; pdb.set_trace()
-                            param.data = new_matrix_E
+                            set_nested_attr(model, name, new_matrix_E)
                             
 
         return mask_threshold
@@ -330,12 +366,14 @@ class RankAllocator(object):
 
 
     def update_and_mask(self, model, global_step):
+        mask_threshold = None
         if global_step<self.total_step-self.final_warmup:
             # Update importance scores element-wise 
             self.update_ipt(model)
-            # do not update ipt during final fine-tuning 
-        # Budget schedule
-        mask_threshold = self.mask_to_target_rank(model, 0) 
+            # Budget schedule
+            if global_step % self.mask_interval == 0:
+                mask_threshold = self.mask_to_target_rank(model, 0)
+                
         return 0, mask_threshold
 
 
