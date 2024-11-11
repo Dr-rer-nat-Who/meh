@@ -325,7 +325,9 @@ class RankAllocator(object):
                     #         param.data = new_matrix_A
                     for name, param in model.named_parameters():
                         if param is matrix_A:
+                            # breakpoint()
                             set_nested_attr(model, name, new_matrix_A)  # This is a hacky way to update the model parameter
+
 
                 # Adjusting the size of new_vector to match matrix_B's first dimension
                 with torch.no_grad():
