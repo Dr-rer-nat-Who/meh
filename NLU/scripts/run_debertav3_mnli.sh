@@ -43,5 +43,5 @@ examples/text-classification/run_glue.py \
 --save_strategy steps --save_steps 30000 \
 --logging_steps 500 \
 --seed 6 \
---root_output_dir ./output_ela_test2/glue/mnli \
+--root_output_dir ./output_ela_test/glue/mnli \
 --overwrite_output_dir

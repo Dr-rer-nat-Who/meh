@@ -222,6 +222,9 @@ class RankAllocator(object):
                     # Update uncertainty 
                     self.exp_avg_unc[n] = self.beta2 * self.exp_avg_unc[n] + \
                                         (1-self.beta2)*(self.ipt[n]-self.exp_avg_ipt[n]).abs()
+                    
+            
+        # breakpoint()
 
     def calculate_score(self, n, p=None, metric="ipt"):
         if metric == "ipt":
@@ -449,13 +452,13 @@ class RankAllocator(object):
                             # import pdb; pdb.set_trace()
                             set_nested_attr(model, name, new_matrix_E)
         # record ranknum
-        if self.tb_writter is not None and self.global_step%self.log_interval==0:                    
+        if self.tb_writter is not None:                    
             for n, p in model.named_parameters():
                 if "lora_E" in n: 
-                    ranknum = (is_dict[n]!=0.0).sum().item() 
-                    # ranknum = (param != 0.0).sum().item()
-                    print(n,param)
-                    print("\n")
+                    # ranknum = (is_dict[n]!=0.0).sum().item() 
+                    ranknum = (p != 0.0).sum().item()
+                    # print(n,p)
+                    # print("\n")
                     self.tb_writter.add_scalar("Ranknum/%s"%(n,), ranknum, self.global_step) 
                     self.rank_pattern[n] = ranknum
             print(self.rank_pattern)
