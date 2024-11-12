@@ -279,7 +279,7 @@ class RankAllocator(object):
             is_dict[name_E] = sum_ipt.view(-1, 1)
             all_is.append(sum_ipt.view(-1))
 
-        top_k_elements = torch.stack([torch.topk(sublist, self.k, largest=False).values for sublist in all_is])
+        top_k_elements = torch.stack([torch.topk(sublist, min(self.k, sublist.numel() - 1), largest=False).values for sublist in all_is])
         smallest_b_elements = torch.topk(top_k_elements.view(-1), self.b, largest=False).values
         mask_threshold = smallest_b_elements.max().item()
         decrease_idx = torch.topk(top_k_elements.view(-1), self.b, largest=False).indices
@@ -324,6 +324,10 @@ class RankAllocator(object):
 
        
         num_matrix = len(lora_A_list)
+        
+        # Map each matrix in lora_E_list to its corresponding name in is_dict
+        lora_E_name_map = {p: name for name, p in model.named_parameters() if "lora_E" in name}
+
 
  ################## Decrease the rank of the matrix and update model parameters  ##################
         for i in range(num_matrix):
@@ -337,12 +341,39 @@ class RankAllocator(object):
                 
                 # Adjusting the size of new_vector to match matrix_A's second dimension
                 with torch.no_grad():
-                    keep_indices = (matrix_E.abs() > mask_threshold).nonzero(as_tuple=True)[0]
+                   
+                    matrix_E_name = lora_E_name_map[matrix_E]
+                    matrix_A_name = matrix_E_name.replace("lora_E", "lora_A")
+                    matrix_B_name = matrix_E_name.replace("lora_E", "lora_B")
+                    keep_indices = (is_dict[matrix_E_name] > mask_threshold).nonzero(as_tuple=True)[0]
                     
                     # Prune matrix_A, matrix_B, and matrix_E based on keep_indices
                     pruned_matrix_A = torch.index_select(matrix_A, 0, keep_indices)  # Select only rows in A to keep
                     pruned_matrix_B = torch.index_select(matrix_B, 1, keep_indices)  # Select only columns in B to keep
                     pruned_matrix_E = torch.index_select(matrix_E, 0, keep_indices)  # Select only elements in E to keep
+                    
+                    # Prune importance tracking variables for lora_A, lora_B, and lora_E
+                    if matrix_E_name in self.ipt:
+                        self.ipt[matrix_E_name] = torch.index_select(self.ipt[matrix_E_name], 0, keep_indices)
+                    if matrix_A_name in self.ipt:
+                        self.ipt[matrix_A_name] = torch.index_select(self.ipt[matrix_A_name], 0, keep_indices)
+                    if matrix_B_name in self.ipt:
+                        self.ipt[matrix_B_name] = torch.index_select(self.ipt[matrix_B_name], 1, keep_indices)
+
+                    if matrix_E_name in self.exp_avg_ipt:
+                        self.exp_avg_ipt[matrix_E_name] = torch.index_select(self.exp_avg_ipt[matrix_E_name], 0, keep_indices)
+                    if matrix_A_name in self.exp_avg_ipt:
+                        self.exp_avg_ipt[matrix_A_name] = torch.index_select(self.exp_avg_ipt[matrix_A_name], 0, keep_indices)
+                    if matrix_B_name in self.exp_avg_ipt:
+                        self.exp_avg_ipt[matrix_B_name] = torch.index_select(self.exp_avg_ipt[matrix_B_name], 1, keep_indices)
+
+                    if matrix_E_name in self.exp_avg_unc:
+                        self.exp_avg_unc[matrix_E_name] = torch.index_select(self.exp_avg_unc[matrix_E_name], 0, keep_indices)
+                    if matrix_A_name in self.exp_avg_unc:
+                        self.exp_avg_unc[matrix_A_name] = torch.index_select(self.exp_avg_unc[matrix_A_name], 0, keep_indices)
+                    if matrix_B_name in self.exp_avg_unc:
+                        self.exp_avg_unc[matrix_B_name] = torch.index_select(self.exp_avg_unc[matrix_B_name], 1, keep_indices)
+
 
                     # Convert pruned matrices to parameters and update the model
                     pruned_matrix_A = torch.nn.Parameter(pruned_matrix_A)
@@ -422,10 +453,14 @@ class RankAllocator(object):
             for n, p in model.named_parameters():
                 if "lora_E" in n: 
                     ranknum = (is_dict[n]!=0.0).sum().item() 
+                    # ranknum = (param != 0.0).sum().item()
+                    print(n,param)
+                    print("\n")
                     self.tb_writter.add_scalar("Ranknum/%s"%(n,), ranknum, self.global_step) 
-                    self.rank_pattern[n] = ranknum 
+                    self.rank_pattern[n] = ranknum
+            print(self.rank_pattern)
                 
-        breakpoint()
+        # breakpoint()
                             
 
         return mask_threshold

@@ -273,11 +273,11 @@ class ModelArguments:
         metadata={"help": "The logging interval for tb_writter."},
     )
     k: Optional[int] = field(
-        default=2,
+        default=1,
         metadata={"help": "Max rank pruned/added for each matrix in each round"},
     )
     b: Optional[int] = field(
-        default=4,
+        default=1,
         metadata={"help": "Number of total ranks pruned/added for each round"},
     )
 
