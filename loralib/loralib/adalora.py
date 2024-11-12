@@ -282,7 +282,8 @@ class RankAllocator(object):
         top_k_elements = torch.stack([torch.topk(sublist, self.k, largest=False).values for sublist in all_is])
         smallest_b_elements = torch.topk(top_k_elements.view(-1), self.b, largest=False).values
         mask_threshold = smallest_b_elements.max().item()
-        
+        decrease_idx = torch.topk(top_k_elements.view(-1), self.b, largest=False).indices
+        decrease_idx = [(idx // self.k).item() for idx in decrease_idx]
         
         # from AdaLoRA
         # mask_threshold = torch.kthvalue(torch.cat(all_is), (self.total_rank-curr_rank))[0].item()
@@ -293,14 +294,14 @@ class RankAllocator(object):
         increase_idx = [(idx // self.k).item() for idx in increase_idx]
 
         # Mask out unimportant singular values 
-        with torch.no_grad():
-            curr_sum_rank = 0
-            sum_param = 0
+        # with torch.no_grad():
+        #     curr_sum_rank = 0
+        #     sum_param = 0
             
             
-            for n, p in model.named_parameters():
-                if "lora_E" in n: 
-                    p.data.masked_fill_(is_dict[n] <= mask_threshold, 0.0)
+        #     for n, p in model.named_parameters():
+        #         if "lora_E" in n: 
+        #             p.data.masked_fill_(is_dict[n] <= mask_threshold, 0.0)
                     # ranknum = (is_dict[n]>mask_threshold).sum().item() 
 
                     # if self.tb_writter is not None and self.global_step%self.log_interval==0:
@@ -321,10 +322,45 @@ class RankAllocator(object):
                 obj = getattr(obj, attr_name)
             setattr(obj, attrs[-1], value)
 
-        # Increase the rank of the matrix and update model parameters
+       
         num_matrix = len(lora_A_list)
 
+ ################## Decrease the rank of the matrix and update model parameters  ##################
         for i in range(num_matrix):
+            if i in decrease_idx:
+                if i in increase_idx:
+                    continue
+                
+                matrix_A = lora_A_list[i]  # (r, hdim_a)
+                matrix_B = lora_B_list[i]  # (hdim_b, r)
+                matrix_E = lora_E_list[i]  # (r, 1)
+                
+                # Adjusting the size of new_vector to match matrix_A's second dimension
+                with torch.no_grad():
+                    keep_indices = (matrix_E.abs() > mask_threshold).nonzero(as_tuple=True)[0]
+                    
+                    # Prune matrix_A, matrix_B, and matrix_E based on keep_indices
+                    pruned_matrix_A = torch.index_select(matrix_A, 0, keep_indices)  # Select only rows in A to keep
+                    pruned_matrix_B = torch.index_select(matrix_B, 1, keep_indices)  # Select only columns in B to keep
+                    pruned_matrix_E = torch.index_select(matrix_E, 0, keep_indices)  # Select only elements in E to keep
+
+                    # Convert pruned matrices to parameters and update the model
+                    pruned_matrix_A = torch.nn.Parameter(pruned_matrix_A)
+                    pruned_matrix_B = torch.nn.Parameter(pruned_matrix_B)
+                    pruned_matrix_E = torch.nn.Parameter(pruned_matrix_E)
+                
+                # Replace pruned matrices in the model
+                with torch.no_grad():
+                    for name, param in model.named_parameters():
+                        if param is matrix_A:
+                            set_nested_attr(model, name, pruned_matrix_A)
+                        elif param is matrix_B:
+                            set_nested_attr(model, name, pruned_matrix_B)
+                        elif param is matrix_E:
+                            set_nested_attr(model, name, pruned_matrix_E)
+                
+            
+ ################## Increase the rank of the matrix and update model parameters  ##################    
             if i in increase_idx:
                 matrix_A = lora_A_list[i]  # (r, hdim_a)
                 matrix_B = lora_B_list[i]  # (hdim_b, r)
@@ -374,10 +410,7 @@ class RankAllocator(object):
                     new_scalar = torch.tensor([min(matrix_E.view(-1).abs().min().item(), 1e-13)], device=matrix_E.device, requires_grad=True)
                     new_matrix_E = torch.cat([matrix_E, new_scalar.unsqueeze(0)], dim=0)
                     new_matrix_E = torch.nn.Parameter(new_matrix_E)
-                    
-                    # Masking the original E
-                    mask = (matrix_E != 0.0) 
-                    new_matrix_E.data[:matrix_E.size(0)].masked_fill_(~mask, 0.0)
+
 
                 with torch.no_grad():
                     for name, param in model.named_parameters():
@@ -392,7 +425,7 @@ class RankAllocator(object):
                     self.tb_writter.add_scalar("Ranknum/%s"%(n,), ranknum, self.global_step) 
                     self.rank_pattern[n] = ranknum 
                 
-        # breakpoint()
+        breakpoint()
                             
 
         return mask_threshold
