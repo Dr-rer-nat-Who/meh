@@ -272,6 +272,14 @@ class ModelArguments:
         default=500,
         metadata={"help": "The logging interval for tb_writter."},
     )
+    k: Optional[int] = field(
+        default=2,
+        metadata={"help": "Max rank pruned/added for each matrix in each round"},
+    )
+    b: Optional[int] = field(
+        default=4,
+        metadata={"help": "Number of total ranks pruned/added for each round"},
+    )
 
     
 def main():
@@ -641,6 +649,8 @@ def main():
             target_total_rank=model_args.target_total_rank, 
             tb_writter=tb_writter, 
             tb_writter_loginterval=model_args.tb_writter_loginterval,
+            k=model_args.k,
+            b=model_args.b
         )
     else:
         rankallocator = None

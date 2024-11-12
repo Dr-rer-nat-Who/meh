@@ -132,7 +132,7 @@ class RankAllocator(object):
         tb_writter=None,
         tb_writter_loginterval:int=500,
         k: int = 2,
-        b: int = 2,
+        b: int = 4,
     ):
         self.k = k
         self.b = b
@@ -282,15 +282,34 @@ class RankAllocator(object):
         top_k_elements = torch.stack([torch.topk(sublist, self.k, largest=False).values for sublist in all_is])
         smallest_b_elements = torch.topk(top_k_elements.view(-1), self.b, largest=False).values
         mask_threshold = smallest_b_elements.max().item()
+        
+        
+        # from AdaLoRA
+        # mask_threshold = torch.kthvalue(torch.cat(all_is), (self.total_rank-curr_rank))[0].item()
+        
+        
         largest_b_elements = torch.topk(top_k_elements.view(-1), self.b, largest=True).values
         increase_idx = torch.topk(top_k_elements.view(-1), self.b, largest=True).indices
         increase_idx = [(idx // self.k).item() for idx in increase_idx]
 
         # Mask out unimportant singular values 
         with torch.no_grad():
+            curr_sum_rank = 0
+            sum_param = 0
+            
+            
             for n, p in model.named_parameters():
                 if "lora_E" in n: 
                     p.data.masked_fill_(is_dict[n] <= mask_threshold, 0.0)
+                    # ranknum = (is_dict[n]>mask_threshold).sum().item() 
+
+                    # if self.tb_writter is not None and self.global_step%self.log_interval==0:
+                    #     self.tb_writter.add_scalar("Ranknum/%s"%(n,), ranknum, self.global_step) 
+                    #     self.rank_pattern[n] = ranknum 
+                    #     curr_sum_rank += ranknum 
+                    #     sum_param += ranknum*self.shape_dict[n.replace("lora_E", "lora_A")][1]  
+                    #     sum_param += ranknum*self.shape_dict[n.replace("lora_E", "lora_B")][0]
+            # breakpoint()
 
 
 
@@ -304,6 +323,7 @@ class RankAllocator(object):
 
         # Increase the rank of the matrix and update model parameters
         num_matrix = len(lora_A_list)
+
         for i in range(num_matrix):
             if i in increase_idx:
                 matrix_A = lora_A_list[i]  # (r, hdim_a)
@@ -316,6 +336,8 @@ class RankAllocator(object):
                     new_vector = new_vector / (new_vector.norm() + 1e-6)
                     new_matrix_A = torch.cat([matrix_A, new_vector.unsqueeze(0)], dim=0)
                     new_matrix_A = torch.nn.Parameter(new_matrix_A)
+                    
+                    
 
                 # Replace the parameter in the model by matching the parameter tensor directly
                 with torch.no_grad():
@@ -352,12 +374,25 @@ class RankAllocator(object):
                     new_scalar = torch.tensor([min(matrix_E.view(-1).abs().min().item(), 1e-13)], device=matrix_E.device, requires_grad=True)
                     new_matrix_E = torch.cat([matrix_E, new_scalar.unsqueeze(0)], dim=0)
                     new_matrix_E = torch.nn.Parameter(new_matrix_E)
+                    
+                    # Masking the original E
+                    mask = (matrix_E != 0.0) 
+                    new_matrix_E.data[:matrix_E.size(0)].masked_fill_(~mask, 0.0)
 
                 with torch.no_grad():
                     for name, param in model.named_parameters():
                         if param is matrix_E:
                             # import pdb; pdb.set_trace()
                             set_nested_attr(model, name, new_matrix_E)
+        # record ranknum
+        if self.tb_writter is not None and self.global_step%self.log_interval==0:                    
+            for n, p in model.named_parameters():
+                if "lora_E" in n: 
+                    ranknum = (is_dict[n]!=0.0).sum().item() 
+                    self.tb_writter.add_scalar("Ranknum/%s"%(n,), ranknum, self.global_step) 
+                    self.rank_pattern[n] = ranknum 
+                
+        # breakpoint()
                             
 
         return mask_threshold
@@ -366,6 +401,7 @@ class RankAllocator(object):
 
 
     def update_and_mask(self, model, global_step):
+        self.global_step=global_step
         mask_threshold = None
         if self.initial_warmup < global_step < self.total_step-self.final_warmup:
             # Update importance scores element-wise 
