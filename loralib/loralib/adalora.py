@@ -295,6 +295,7 @@ class RankAllocator(object):
         largest_b_elements = torch.topk(flat_top_k_elements, self.b, largest=True).values
 
         mask_threshold = smallest_b_elements.max().item()
+
         decrease_idx = torch.topk(flat_top_k_elements, self.b, largest=False).indices
         increase_idx = torch.topk(flat_top_k_elements, self.b, largest=True).indices
 
@@ -302,13 +303,8 @@ class RankAllocator(object):
         def map_indices(flat_indices, sublist_sizes):
             """
             sublist_sizes: [2, 1, 2] -> [[0,1], [2], [3, 4]]
-<<<<<<< HEAD
-            flat_indices: [1, 3], [0,1]
-            return: [0, 2]
-=======
             flat_indices: [1, 3]
-            return: [0, 2] because index 1 is in sublist 0 and index 3 is in sublist 2
->>>>>>> refs/remotes/origin/master
+            return: [0, 2]
             """
             mapped_sublist_ids = []
             current_offset = 0
