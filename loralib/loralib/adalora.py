@@ -215,7 +215,10 @@ class RankAllocator(object):
                     self.exp_avg_unc[n] = torch.nn.functional.pad(self.exp_avg_unc[n], tuple(padding), "constant", 0)
                 with torch.no_grad():
                     # Calculate sensitivity 
-                    self.ipt[n] = (p * p.grad).abs().detach()
+                    try:
+                        self.ipt[n] = (p * p.grad).abs().detach()
+                    except:
+                        breakpoint()
                     # Update sensitivity 
                     self.exp_avg_ipt[n] = self.beta1 * self.exp_avg_ipt[n] + \
                                         (1-self.beta1)*self.ipt[n]
@@ -400,6 +403,10 @@ class RankAllocator(object):
                         self.exp_avg_unc[matrix_B_name] = torch.index_select(self.exp_avg_unc[matrix_B_name], 1, keep_indices)
 
 
+                    lora_A_list[i] = pruned_matrix_A
+                    lora_B_list[i] = pruned_matrix_B
+                    lora_E_list[i] = pruned_matrix_E    
+
                     # Convert pruned matrices to parameters and update the model
                     pruned_matrix_A = torch.nn.Parameter(pruned_matrix_A)
                     pruned_matrix_B = torch.nn.Parameter(pruned_matrix_B)
@@ -416,8 +423,9 @@ class RankAllocator(object):
                             set_nested_attr(model, name, pruned_matrix_E)
                 
             
- ################## Increase the rank of the matrix and update model parameters  ##################    
-            if i in increase_idx:
+ ################## Increase the rank of the matrix and update model parameters  ##################  
+        for i in range(len(increase_idx)):
+            if True:
                 matrix_A = lora_A_list[i]  # (r, hdim_a)
                 matrix_B = lora_B_list[i]  # (hdim_b, r)
                 matrix_E = lora_E_list[i]  # (r, 1)
@@ -427,6 +435,7 @@ class RankAllocator(object):
                     new_vector = new_vector - matrix_A.T @ (matrix_A @ new_vector)
                     new_vector = new_vector / (new_vector.norm() + 1e-6)
                     new_matrix_A = torch.cat([matrix_A, new_vector.unsqueeze(0)], dim=0)
+                    lora_A_list[i] = new_matrix_A #! update the lora_A_list
                     new_matrix_A = torch.nn.Parameter(new_matrix_A)
                     
                     
@@ -449,6 +458,7 @@ class RankAllocator(object):
                     new_vector = new_vector - matrix_B @ (matrix_B.T @ new_vector)
                     new_vector = new_vector / (new_vector.norm() + 1e-6)
                     new_matrix_B = torch.cat([matrix_B, new_vector.unsqueeze(1)], dim=1)
+                    lora_B_list[i] = new_matrix_B #! update the lora_B_list
                     new_matrix_B = torch.nn.Parameter(new_matrix_B)
 
                 # Replace the parameter in the model by matching the parameter tensor directly
@@ -465,6 +475,7 @@ class RankAllocator(object):
                 with torch.no_grad():
                     new_scalar = torch.tensor([min(matrix_E.view(-1).abs().min().item(), 1e-13)], device=matrix_E.device, requires_grad=True)
                     new_matrix_E = torch.cat([matrix_E, new_scalar.unsqueeze(0)], dim=0)
+                    lora_E_list[i] = new_matrix_E #! update the lora_E_list
                     new_matrix_E = torch.nn.Parameter(new_matrix_E)
 
 
