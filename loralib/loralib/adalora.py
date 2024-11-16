@@ -303,7 +303,7 @@ class RankAllocator(object):
         def map_indices(flat_indices, sublist_sizes):
             """
             sublist_sizes: [2, 1, 2] -> [[0,1], [2], [3, 4]]
-            flat_indices: [1, 3]
+            flat_indices: [1, 3], [0,1]
             return: [0, 2]
             """
             mapped_sublist_ids = []
@@ -357,8 +357,8 @@ class RankAllocator(object):
  ################## Decrease the rank of the matrix and update model parameters  ##################
         for i in range(num_matrix):
             if i in decrease_idx:
-                if i in increase_idx:
-                    continue
+                # if i in increase_idx:
+                #     continue
                 
                 matrix_A = lora_A_list[i]  # (r, hdim_a)
                 matrix_B = lora_B_list[i]  # (hdim_b, r)
