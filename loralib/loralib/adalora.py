@@ -284,9 +284,9 @@ class RankAllocator(object):
 
 
         top_k_elements = []
-        sublist_sizes = []
+        sublist_sizes = [] # how many elements are picked from each sublist
         for sublist in all_is:
-            k = min(self.k, sublist.numel() - 1)
+            k = min(self.k, sublist.numel() - 1) # prevent deleting all elements
             top_k_elements.append(torch.topk(sublist, k, largest=False).values)
             sublist_sizes.append(k)
 
@@ -295,7 +295,6 @@ class RankAllocator(object):
         largest_b_elements = torch.topk(flat_top_k_elements, self.b, largest=True).values
 
         mask_threshold = smallest_b_elements.max().item()
-
         decrease_idx = torch.topk(flat_top_k_elements, self.b, largest=False).indices
         increase_idx = torch.topk(flat_top_k_elements, self.b, largest=True).indices
 
@@ -304,7 +303,7 @@ class RankAllocator(object):
             """
             sublist_sizes: [2, 1, 2] -> [[0,1], [2], [3, 4]]
             flat_indices: [1, 3]
-            return: [0, 2]
+            return: [0, 2] because index 1 is in sublist 0 and index 3 is in sublist 2
             """
             mapped_sublist_ids = []
             current_offset = 0
@@ -357,8 +356,8 @@ class RankAllocator(object):
  ################## Decrease the rank of the matrix and update model parameters  ##################
         for i in range(num_matrix):
             if i in decrease_idx:
-                if i in increase_idx:
-                    continue
+                # if i in increase_idx:
+                #     continue
                 
                 matrix_A = lora_A_list[i]  # (r, hdim_a)
                 matrix_B = lora_B_list[i]  # (hdim_b, r)
