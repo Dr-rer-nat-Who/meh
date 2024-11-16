@@ -282,19 +282,41 @@ class RankAllocator(object):
             is_dict[name_E] = sum_ipt.view(-1, 1)
             all_is.append(sum_ipt.view(-1))
 
-        top_k_elements = torch.stack([torch.topk(sublist, min(self.k, sublist.numel() - 1), largest=False).values for sublist in all_is])
-        smallest_b_elements = torch.topk(top_k_elements.view(-1), self.b, largest=False).values
+
+        top_k_elements = []
+        sublist_sizes = []
+        for sublist in all_is:
+            k = min(self.k, sublist.numel() - 1)
+            top_k_elements.append(torch.topk(sublist, k, largest=False).values)
+            sublist_sizes.append(k)
+
+        flat_top_k_elements = torch.cat(top_k_elements)
+        smallest_b_elements = torch.topk(flat_top_k_elements, self.b, largest=False).values
+        largest_b_elements = torch.topk(flat_top_k_elements, self.b, largest=True).values
+
         mask_threshold = smallest_b_elements.max().item()
-        decrease_idx = torch.topk(top_k_elements.view(-1), self.b, largest=False).indices
-        decrease_idx = [(idx // self.k).item() for idx in decrease_idx]
+
+        decrease_idx = torch.topk(flat_top_k_elements, self.b, largest=False).indices
+        increase_idx = torch.topk(flat_top_k_elements, self.b, largest=True).indices
+
+
+        def map_indices(flat_indices, sublist_sizes):
+            """
+            sublist_sizes: [2, 1, 2] -> [[0,1], [2], [3, 4]]
+            flat_indices: [1, 3]
+            return: [0, 2]
+            """
+            mapped_sublist_ids = []
+            current_offset = 0
+            for sublist_id, size in enumerate(sublist_sizes):
+                for idx in flat_indices:
+                    if current_offset <= idx < current_offset + size:
+                        mapped_sublist_ids.append(sublist_id)
+                current_offset += size
+            return mapped_sublist_ids
         
-        # from AdaLoRA
-        # mask_threshold = torch.kthvalue(torch.cat(all_is), (self.total_rank-curr_rank))[0].item()
-        
-        
-        largest_b_elements = torch.topk(top_k_elements.view(-1), self.b, largest=True).values
-        increase_idx = torch.topk(top_k_elements.view(-1), self.b, largest=True).indices
-        increase_idx = [(idx // self.k).item() for idx in increase_idx]
+        decrease_idx = map_indices(decrease_idx, sublist_sizes)
+        increase_idx = map_indices(increase_idx, sublist_sizes)
 
         # Mask out unimportant singular values 
         # with torch.no_grad():
