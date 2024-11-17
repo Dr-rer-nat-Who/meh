@@ -375,6 +375,35 @@ class RankAllocator(object):
                     matrix_B_name = matrix_E_name.replace("lora_E", "lora_B")
                     keep_indices = (is_dict[matrix_E_name] > mask_threshold).nonzero(as_tuple=True)[0]
                     
+                    # Get the ranks below the threshold
+                    importance_scores = is_dict[matrix_E_name]
+                    below_threshold_indices = (importance_scores <= mask_threshold).nonzero(as_tuple=True)[0]
+                    # Convert scores to 1D if necessary
+                    below_threshold_scores = importance_scores[below_threshold_indices].squeeze()  # Ensure 1D
+
+                    # Limit the number of ranks to be removed based on sublist_sizes
+                    num_to_remove = min(sublist_sizes[i], below_threshold_scores.numel())
+                    if num_to_remove > 0:
+                        # Select the indices with the lowest scores
+                        removal_indices = torch.topk(
+                            below_threshold_scores, 
+                            num_to_remove, 
+                            largest=False
+                        ).indices
+                        # Map back to the original indices
+                        removal_indices = below_threshold_indices[removal_indices]
+                    else:
+                        # Nothing to remove
+                        removal_indices = torch.tensor([], dtype=torch.long, device=importance_scores.device)
+                    
+                    # Compute keep_indices (all indices excluding removal_indices)
+                    keep_indices = torch.arange(importance_scores.numel(), device=importance_scores.device)
+                    keep_indices = torch.tensor(
+                        [idx for idx in keep_indices if idx not in removal_indices], 
+                        dtype=torch.long, 
+                        device=importance_scores.device
+                    )
+
                     # Prune matrix_A, matrix_B, and matrix_E based on keep_indices
                     pruned_matrix_A = torch.index_select(matrix_A, 0, keep_indices)  # Select only rows in A to keep
                     pruned_matrix_B = torch.index_select(matrix_B, 1, keep_indices)  # Select only columns in B to keep
