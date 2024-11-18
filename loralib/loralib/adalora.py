@@ -226,8 +226,6 @@ class RankAllocator(object):
                     self.exp_avg_unc[n] = self.beta2 * self.exp_avg_unc[n] + \
                                         (1-self.beta2)*(self.ipt[n]-self.exp_avg_ipt[n]).abs()
                     
-            
-        # breakpoint()
 
     def calculate_score(self, n, p=None, metric="ipt"):
         if metric == "ipt":
@@ -252,7 +250,6 @@ class RankAllocator(object):
         lora_A_list = []
         lora_B_list = []
         lora_E_list = []
-
         # Calculate the importance score for each sub matrix 
         for n, p in model.named_parameters(): 
             if "lora_A" in n: 
@@ -338,7 +335,6 @@ class RankAllocator(object):
                     #     curr_sum_rank += ranknum 
                     #     sum_param += ranknum*self.shape_dict[n.replace("lora_E", "lora_A")][1]  
                     #     sum_param += ranknum*self.shape_dict[n.replace("lora_E", "lora_B")][0]
-            # breakpoint()
 
 
 
@@ -432,15 +428,16 @@ class RankAllocator(object):
                         self.exp_avg_unc[matrix_B_name] = torch.index_select(self.exp_avg_unc[matrix_B_name], 1, keep_indices)
 
 
-                    lora_A_list[i] = pruned_matrix_A
-                    lora_B_list[i] = pruned_matrix_B
-                    lora_E_list[i] = pruned_matrix_E    
 
                     # Convert pruned matrices to parameters and update the model
                     pruned_matrix_A = torch.nn.Parameter(pruned_matrix_A)
                     pruned_matrix_B = torch.nn.Parameter(pruned_matrix_B)
                     pruned_matrix_E = torch.nn.Parameter(pruned_matrix_E)
-                
+
+                    lora_A_list[i] = pruned_matrix_A
+                    lora_B_list[i] = pruned_matrix_B
+                    lora_E_list[i] = pruned_matrix_E
+
                 # Replace pruned matrices in the model
                 with torch.no_grad():
                     for name, param in model.named_parameters():
@@ -451,68 +448,67 @@ class RankAllocator(object):
                         elif param is matrix_E:
                             set_nested_attr(model, name, pruned_matrix_E)
                 
+ ################## Increase the rank of the matrix and update model parameters  ################## 
+        for i in increase_idx:
+            matrix_A = lora_A_list[i]  # (r, hdim_a)
+            matrix_B = lora_B_list[i]  # (hdim_b, r)
+            matrix_E = lora_E_list[i]  # (r, 1)
+
+            # Adjusting the size of new_vector to match matrix_A's second dimension
+            with torch.no_grad():
+                new_vector = torch.randn(matrix_A.size(1), device=matrix_A.device, requires_grad=True)
+                new_vector = new_vector - matrix_A.T @ (matrix_A @ new_vector)
+                new_vector = new_vector / (new_vector.norm() + 1e-6)
+                new_matrix_A = torch.cat([matrix_A, new_vector.unsqueeze(0)], dim=0)
+                new_matrix_A = torch.nn.Parameter(new_matrix_A)
+                lora_A_list[i] = new_matrix_A #! update the lora_A_list
+                
+                
+
+            # Replace the parameter in the model by matching the parameter tensor directly
+            with torch.no_grad():
+                # for param in model.parameters():
+                #     if param is matrix_A:
+                #         # import pdb; pdb.set_trace()
+                #         param.data = new_matrix_A
+                for name, param in model.named_parameters():
+                    if param is matrix_A:
+                        set_nested_attr(model, name, new_matrix_A)  # This is a hacky way to update the model parameter
+
+
+            # Adjusting the size of new_vector to match matrix_B's first dimension
+            with torch.no_grad():
+                new_vector = torch.randn(matrix_B.size(0), device=matrix_B.device, requires_grad=True)
+                new_vector = new_vector - matrix_B @ (matrix_B.T @ new_vector)
+                new_vector = new_vector / (new_vector.norm() + 1e-6)
+                new_matrix_B = torch.cat([matrix_B, new_vector.unsqueeze(1)], dim=1)
+                new_matrix_B = torch.nn.Parameter(new_matrix_B)
+                lora_B_list[i] = new_matrix_B #! update the lora_B_list
+
+            # Replace the parameter in the model by matching the parameter tensor directly
+            with torch.no_grad():
+                # for param in model.parameters():
+                #     if param is matrix_B:
+                #         # import pdb; pdb.set_trace()
+                #         param.data = new_matrix_B
+                for name, param in model.named_parameters():
+                    if param is matrix_B:
+                        set_nested_attr(model, name, new_matrix_B)
+
+            # Adjust matrix_E
+            with torch.no_grad():
+                new_scalar = torch.tensor([min(matrix_E.view(-1).abs().min().item(), 1e-13)], device=matrix_E.device, requires_grad=True)
+                new_matrix_E = torch.cat([matrix_E, new_scalar.unsqueeze(0)], dim=0)
+                new_matrix_E = torch.nn.Parameter(new_matrix_E)
+                lora_E_list[i] = new_matrix_E #! update the lora_E_list
             
- ################## Increase the rank of the matrix and update model parameters  ##################  
-        for i in range(len(increase_idx)):
-            if True:
-                matrix_A = lora_A_list[i]  # (r, hdim_a)
-                matrix_B = lora_B_list[i]  # (hdim_b, r)
-                matrix_E = lora_E_list[i]  # (r, 1)
-                # Adjusting the size of new_vector to match matrix_A's second dimension
-                with torch.no_grad():
-                    new_vector = torch.randn(matrix_A.size(1), device=matrix_A.device, requires_grad=True)
-                    new_vector = new_vector - matrix_A.T @ (matrix_A @ new_vector)
-                    new_vector = new_vector / (new_vector.norm() + 1e-6)
-                    new_matrix_A = torch.cat([matrix_A, new_vector.unsqueeze(0)], dim=0)
-                    lora_A_list[i] = new_matrix_A #! update the lora_A_list
-                    new_matrix_A = torch.nn.Parameter(new_matrix_A)
-                    
-                    
+            with torch.no_grad():
+                for name, param in model.named_parameters():
+                    if param is matrix_E:
+                        # import pdb; pdb.set_trace()
+                        set_nested_attr(model, name, new_matrix_E)
+            
 
-                # Replace the parameter in the model by matching the parameter tensor directly
-                with torch.no_grad():
-                    # for param in model.parameters():
-                    #     if param is matrix_A:
-                    #         # import pdb; pdb.set_trace()
-                    #         param.data = new_matrix_A
-                    for name, param in model.named_parameters():
-                        if param is matrix_A:
-                            # breakpoint()
-                            set_nested_attr(model, name, new_matrix_A)  # This is a hacky way to update the model parameter
-
-
-                # Adjusting the size of new_vector to match matrix_B's first dimension
-                with torch.no_grad():
-                    new_vector = torch.randn(matrix_B.size(0), device=matrix_B.device, requires_grad=True)
-                    new_vector = new_vector - matrix_B @ (matrix_B.T @ new_vector)
-                    new_vector = new_vector / (new_vector.norm() + 1e-6)
-                    new_matrix_B = torch.cat([matrix_B, new_vector.unsqueeze(1)], dim=1)
-                    lora_B_list[i] = new_matrix_B #! update the lora_B_list
-                    new_matrix_B = torch.nn.Parameter(new_matrix_B)
-
-                # Replace the parameter in the model by matching the parameter tensor directly
-                with torch.no_grad():
-                    # for param in model.parameters():
-                    #     if param is matrix_B:
-                    #         # import pdb; pdb.set_trace()
-                    #         param.data = new_matrix_B
-                    for name, param in model.named_parameters():
-                        if param is matrix_B:
-                            set_nested_attr(model, name, new_matrix_B)
-
-                # Adjust matrix_E
-                with torch.no_grad():
-                    new_scalar = torch.tensor([min(matrix_E.view(-1).abs().min().item(), 1e-13)], device=matrix_E.device, requires_grad=True)
-                    new_matrix_E = torch.cat([matrix_E, new_scalar.unsqueeze(0)], dim=0)
-                    lora_E_list[i] = new_matrix_E #! update the lora_E_list
-                    new_matrix_E = torch.nn.Parameter(new_matrix_E)
-
-
-                with torch.no_grad():
-                    for name, param in model.named_parameters():
-                        if param is matrix_E:
-                            # import pdb; pdb.set_trace()
-                            set_nested_attr(model, name, new_matrix_E)
         # record ranknum
         if self.tb_writter is not None:                    
             for n, p in model.named_parameters():
@@ -524,8 +520,6 @@ class RankAllocator(object):
                     self.tb_writter.add_scalar("Ranknum/%s"%(n,), ranknum, self.global_step) 
                     self.rank_pattern[n] = ranknum
             print(self.rank_pattern)
-                
-        # breakpoint()
                             
 
         return mask_threshold
