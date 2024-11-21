@@ -527,8 +527,10 @@ class RankAllocator(object):
             # Define the directory path
             rank_distribution_dir = os.path.join(self.output_dir, "rank_plots")
             os.makedirs(rank_distribution_dir, exist_ok=True)
-            image_path = os.path.join(rank_distribution_dir, f"step_{self.global_step}.png")    
-            plot_rank(self.rank_pattern, image_path)
+            image_path = os.path.join(rank_distribution_dir, f"step_{self.global_step}.png")
+            
+            plotting_global_max = max(10, self.lora_init_rank*2)    
+            plot_rank(self.rank_pattern, image_path, 1, plotting_global_max)
                             
 
         return mask_threshold

@@ -51,7 +51,30 @@ def lora_state_dict(model: nn.Module, bias: str = 'none') -> Dict[str, torch.Ten
     else:
         raise NotImplementedError
     
-def plot_rank(data, file_path):
+# def plot_rank(data, file_path):
+#     layers = sorted(set(int(k.split(".")[3]) for k in data.keys()))
+#     weights = sorted(set(".".join(k.split(".")[4:-1]) for k in data.keys()))
+
+#     heatmap_data = pd.DataFrame(index=weights, columns=layers)
+
+#     for key, value in data.items():
+#         layer = int(key.split(".")[3])
+#         weight = ".".join(key.split(".")[4:-1])
+#         heatmap_data.loc[weight, layer] = value
+
+#     heatmap_data = heatmap_data.astype(float)  # Ensure numeric values
+
+#     # Plot the heatmap
+#     plt.figure(figsize=(12, 6))
+#     sns.heatmap(heatmap_data, annot=True, cmap="YlGnBu", fmt=".0f", cbar_kws={'label': 'Rank'})
+#     plt.title("DeBERTa Rank Heatmap")
+#     plt.xlabel("Layer")
+#     plt.ylabel("Weight Matrix")
+#     plt.tight_layout()
+#     # plt.show()
+#     plt.savefig(file_path, bbox_inches='tight')
+
+def plot_rank(data, file_path, global_min=None, global_max=None):
     layers = sorted(set(int(k.split(".")[3]) for k in data.keys()))
     weights = sorted(set(".".join(k.split(".")[4:-1]) for k in data.keys()))
 
@@ -64,10 +87,24 @@ def plot_rank(data, file_path):
 
     heatmap_data = heatmap_data.astype(float)  # Ensure numeric values
 
-    # Plot the heatmap
+    # Determine global min and max if not provided
+    if global_min is None:
+        global_min = heatmap_data.min().min()
+    if global_max is None:
+        global_max = heatmap_data.max().max()
+
+    # Plot the heatmap with consistent color range
     plt.figure(figsize=(12, 6))
-    sns.heatmap(heatmap_data, annot=True, cmap="YlGnBu", fmt=".0f", cbar_kws={'label': 'Rank'})
-    plt.title("DeBERTa Rank Heatmap")
+    sns.heatmap(
+        heatmap_data,
+        annot=True,
+        cmap="YlGnBu",
+        fmt=".0f",
+        cbar_kws={'label': 'Rank'},
+        vmin=global_min,
+        vmax=global_max,
+    )
+    plt.title("Rank Heatmap")
     plt.xlabel("Layer")
     plt.ylabel("Weight Matrix")
     plt.tight_layout()
