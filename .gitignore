@@ -1,6 +1,7 @@
 # ignore all the files in NLU/mlruns
 NLU/mlruns/*
 NLU/output/*
+**/model/*
 
 # ignore all the python cache files
 *.pyc
