@@ -650,7 +650,8 @@ def main():
             tb_writter=tb_writter, 
             tb_writter_loginterval=model_args.tb_writter_loginterval,
             k=model_args.k,
-            b=model_args.b
+            b=model_args.b,
+            output_dir=training_args.root_output_dir
         )
     else:
         rankallocator = None

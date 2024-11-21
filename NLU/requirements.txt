@@ -12,7 +12,10 @@ scikit-learn==0.24.2
 scipy==1.7.0 
 absl-py==1.0.0 
 tensorflow==2.9.1
-wrapt==1.12.1 
+wrapt==1.12.1
+seaborn==0.12.2
+matplotlib=3.5.3
+ 
 mlflow
 tensorboardX
 azureml-defaults 

@@ -4,6 +4,9 @@
 #  ------------------------------------------------------------------------------------------
 import torch
 import torch.nn as nn
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 from typing import Dict
 
@@ -47,3 +50,26 @@ def lora_state_dict(model: nn.Module, bias: str = 'none') -> Dict[str, torch.Ten
         return to_return
     else:
         raise NotImplementedError
+    
+def plot_rank(data, file_path):
+    layers = sorted(set(int(k.split(".")[3]) for k in data.keys()))
+    weights = sorted(set(".".join(k.split(".")[4:-1]) for k in data.keys()))
+
+    heatmap_data = pd.DataFrame(index=weights, columns=layers)
+
+    for key, value in data.items():
+        layer = int(key.split(".")[3])
+        weight = ".".join(key.split(".")[4:-1])
+        heatmap_data.loc[weight, layer] = value
+
+    heatmap_data = heatmap_data.astype(float)  # Ensure numeric values
+
+    # Plot the heatmap
+    plt.figure(figsize=(12, 6))
+    sns.heatmap(heatmap_data, annot=True, cmap="YlGnBu", fmt=".0f", cbar_kws={'label': 'Rank'})
+    plt.title("DeBERTa Rank Heatmap")
+    plt.xlabel("Layer")
+    plt.ylabel("Weight Matrix")
+    plt.tight_layout()
+    # plt.show()
+    plt.savefig(file_path, bbox_inches='tight')

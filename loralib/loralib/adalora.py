@@ -5,6 +5,8 @@ import torch.nn.functional as F
 
 from .layers import LoRALayer 
 from typing import Optional, List
+from .utils import plot_rank
+import os
 
 import numpy as np
 
@@ -133,9 +135,11 @@ class RankAllocator(object):
         tb_writter_loginterval:int=500,
         k: int = 2,
         b: int = 4,
+        output_dir: str = None
     ):
         self.k = k
         self.b = b
+        self.output_dir = output_dir
 
         self.ave_target_rank = target_rank 
         self.target_rank = target_total_rank
@@ -519,7 +523,12 @@ class RankAllocator(object):
                     # print("\n")
                     self.tb_writter.add_scalar("Ranknum/%s"%(n,), ranknum, self.global_step) 
                     self.rank_pattern[n] = ranknum
-            print(self.rank_pattern)
+            # print(self.rank_pattern)
+            # Define the directory path
+            rank_distribution_dir = os.path.join(self.output_dir, "rank_plots")
+            os.makedirs(rank_distribution_dir, exist_ok=True)
+            image_path = os.path.join(rank_distribution_dir, f"step_{self.global_step}.png")    
+            plot_rank(self.rank_pattern, image_path)
                             
 
         return mask_threshold
