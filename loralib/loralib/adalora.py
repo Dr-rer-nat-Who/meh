@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 from .layers import LoRALayer 
 from typing import Optional, List
-from .utils import plot_rank
+from .utils import plot_rank, plot_ipt_graph
 import os
 
 import numpy as np
@@ -514,6 +514,13 @@ class RankAllocator(object):
                         # import pdb; pdb.set_trace()
                         set_nested_attr(model, name, new_matrix_E)
             
+        # record impotrance score trend
+        if self.tb_writter is not None:
+            # Create a directory for the importance score plots
+            ipt_dir = os.path.join(self.output_dir, "ipt_plots")
+            os.makedirs(ipt_dir, exist_ok=True)
+            image_path = os.path.join(ipt_dir, f"step_{self.global_step}.png")
+            plot_ipt_graph(all_is, image_path)
 
         # record ranknum
         if self.tb_writter is not None:                    

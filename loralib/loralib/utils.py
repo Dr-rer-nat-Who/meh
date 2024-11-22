@@ -7,6 +7,8 @@ import torch.nn as nn
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import numpy as np
+import torch.nn.functional as F
 
 from typing import Dict
 
@@ -110,3 +112,25 @@ def plot_rank(data, file_path, global_min=None, global_max=None):
     plt.tight_layout()
     # plt.show()
     plt.savefig(file_path, bbox_inches='tight')
+
+
+def plot_ipt_graph(all_is, file_path):
+    # Plot the importance score trends for each matrix
+    sorted_all_is = [torch.sort(tensor, descending=True)[0] for tensor in all_is]
+    max_len = max(tensor.size(0) for tensor in sorted_all_is)
+    padded_all_is = [F.pad(tensor, (0, max_len - tensor.size(0))) for tensor in sorted_all_is]
+
+    # Convert to numpy for plotting
+    padded_all_is_np = [tensor.cpu().numpy() for tensor in padded_all_is]
+
+    # Plotting
+    plt.figure(figsize=(10, 6))
+    for i, scores in enumerate(padded_all_is_np):
+        plt.plot(np.arange(max_len), scores, label=f'Matrix {i}')
+    
+    plt.xlabel('Rank Index')
+    plt.ylabel('Importance Score')
+    plt.title('Importance Score Trends for Each Matrix')
+    plt.legend()
+    plt.savefig(file_path, bbox_inches='tight')
+    plt.close()
