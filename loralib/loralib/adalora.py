@@ -139,6 +139,8 @@ class RankAllocator(object):
     ):
         self.k = k
         self.b = b
+        self.initial_b = b
+
         self.output_dir = output_dir
 
         self.ave_target_rank = target_rank 
@@ -545,10 +547,23 @@ class RankAllocator(object):
             # Update importance scores element-wise 
             self.update_ipt(model)
             # Budget schedule
-            if global_step % self.mask_interval == 0:
+            self._b_scheduler(global_step)
+            if global_step % self.mask_interval == 0 and self.b > 0:
+                print(self.b)
                 mask_threshold = self.mask_to_target_rank(model, 0)
                 
         return 0, mask_threshold
+    
+    def _b_scheduler(self, global_step):
+        initial_b = self.initial_b
+        final_b = 0
+        total_step = self.total_step
+        progress = (global_step - self.initial_warmup) / (total_step - self.final_warmup - self.initial_warmup)
+        progress = min(max(progress, 0), 1)
+        mul_coeff = progress ** 3
+        self.b = round(initial_b + (final_b - initial_b) * mul_coeff)
+
+
 
 
 def compute_orth_regu(model, regu_weight=0.1):
