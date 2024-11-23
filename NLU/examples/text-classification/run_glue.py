@@ -280,6 +280,11 @@ class ModelArguments:
         default=1,
         metadata={"help": "Number of total ranks pruned/added for each round"},
     )
+    enable_scheduler: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to enable scheduler or not."},
+    )
+
 
     
 def main():
@@ -651,7 +656,8 @@ def main():
             tb_writter_loginterval=model_args.tb_writter_loginterval,
             k=model_args.k,
             b=model_args.b,
-            output_dir=training_args.root_output_dir
+            output_dir=training_args.root_output_dir,
+            enable_scheduler=model_args.enable_scheduler,
         )
     else:
         rankallocator = None

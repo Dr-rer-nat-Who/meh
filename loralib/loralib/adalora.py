@@ -135,11 +135,14 @@ class RankAllocator(object):
         tb_writter_loginterval:int=500,
         k: int = 2,
         b: int = 4,
-        output_dir: str = None
+        output_dir: str = None,
+        enable_scheduler: bool = False,
     ):
         self.k = k
         self.b = b
         self.initial_b = b
+
+        self.enable_scheduler = enable_scheduler
 
         self.output_dir = output_dir
 
@@ -547,9 +550,11 @@ class RankAllocator(object):
             # Update importance scores element-wise 
             self.update_ipt(model)
             # Budget schedule
-            self._b_scheduler(global_step)
+            if self.enable_scheduler:
+                print("[Scheduler] Now is enabled")
+                self._b_scheduler(global_step)
             if global_step % self.mask_interval == 0 and self.b > 0:
-                print(self.b)
+                print(f"[Scheduler] Now is masking, b={self.b}")
                 mask_threshold = self.mask_to_target_rank(model, 0)
                 
         return 0, mask_threshold
