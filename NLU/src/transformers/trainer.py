@@ -1056,6 +1056,7 @@ class Trainer:
             self.control = self.callback_handler.on_epoch_begin(self.args, self.state, self.control)
 
             for step, inputs in enumerate(epoch_iterator):
+                # breakpoint()
 
                 # Skip past any already trained steps if resuming training
                 if steps_trained_in_current_epoch > 0:
@@ -1128,8 +1129,68 @@ class Trainer:
                         if mask_threshold is not None:
                             # update optimizer with new parameters
                             # optimizer_state = self.optimizer.state_dict()  # save the optimizer state
-                            self.optimizer = type(self.optimizer)(self.model.parameters(), **self.optimizer.defaults)  # reinitialize the optimizer
+                            # self.optimizer = type(self.optimizer)(self.model.parameters(), **self.optimizer.defaults)  # reinitialize the optimizer
                             # self.optimizer.load_state_dict(optimizer_state)  # load the optimizer state
+                            
+                            
+                ###################### Experiments ##########################
+                            def get_changed_params_from_shapes(model, optimizer):
+                                # Extract parameter shapes from the optimizer state
+                                optimizer_shapes = {
+                                    id(param): param.shape
+                                    for group in optimizer.param_groups
+                                    for param in group['params']
+                                }
+                                
+                                # Compare with the model's current parameters
+                                changed_params = []
+                                unchanged_params = []
+                                for param in model.parameters():
+                                    param_id = id(param)
+                                    if param_id not in optimizer_shapes or optimizer_shapes[param_id] != param.shape:
+                                        changed_params.append(param)  # Shape has changed or is new
+                                    else:
+                                        unchanged_params.append(param)  # Shape matches
+
+                                return changed_params, unchanged_params
+
+                            # Example usage
+                            # changed_params, unchanged_params = get_changed_params_from_shapes(self.model, self.optimizer)
+                            
+                            
+                            def update_optimizer_for_changed_params(model, optimizer):
+                                # Get changed and unchanged parameters
+                                changed_params, unchanged_params = get_changed_params_from_shapes(model, optimizer)
+
+                                # Get the optimizer's current state
+                                optimizer_state = optimizer.state_dict()
+
+                                # Reinitialize the optimizer
+                                optimizer = type(optimizer)(model.parameters(), **optimizer.defaults)
+
+                                # Update the optimizer state
+                                new_optimizer_state = optimizer.state_dict()
+                                for param_id, state in optimizer_state['state'].items():
+                                    # Retain state for unchanged parameters
+                                    if any(id(p) == param_id for p in unchanged_params):
+                                        new_optimizer_state['state'][param_id] = state
+
+                                # Load the updated state back into the optimizer
+                                optimizer.load_state_dict(new_optimizer_state)
+
+                                return optimizer
+
+                         
+                            
+                            # breakpoint()
+                            self.optimizer=update_optimizer_for_changed_params(self.model, self.optimizer)
+
+                             
+                             
+                       
+                ###################### Experiments ##########################
+                    
+                    
                     
                             if not self.deepspeed:
                                 self.lr_scheduler.step()

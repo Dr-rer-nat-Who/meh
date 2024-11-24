@@ -290,14 +290,30 @@ class RankAllocator(object):
             name_E = name_mat % "lora_E"
             is_dict[name_E] = sum_ipt.view(-1, 1)
             all_is.append(sum_ipt.view(-1))
+        
+            
+        
+        if self.output_dir:
+            log_file = os.path.join(self.output_dir, "importance_log.txt")
+            os.makedirs(self.output_dir, exist_ok=True)
+            
+            with open(log_file, 'a') as f:
+                f.write(f"Step {self.global_step}:\n")
+                f.write(f"{all_is}\n\n")
+        
+        # breakpoint()
+        
 
 
         top_k_elements = []
         sublist_sizes = [] # how many elements are picked from each sublist
+        
         for sublist in all_is:
             k = min(self.k, sublist.numel() - 1) # prevent deleting all elements
             top_k_elements.append(torch.topk(sublist, k, largest=False).values)
             sublist_sizes.append(k)
+        
+        
 
         flat_top_k_elements = torch.cat(top_k_elements)
         smallest_b_elements = torch.topk(flat_top_k_elements, self.b, largest=False).values
@@ -307,6 +323,22 @@ class RankAllocator(object):
 
         decrease_idx = torch.topk(flat_top_k_elements, self.b, largest=False).indices
         increase_idx = torch.topk(flat_top_k_elements, self.b, largest=True).indices
+        
+        
+        ########### Experiments ###############
+        # global_averaged_all_is =  [0.5*tensor + 0.5*tensor.mean() for tensor in all_is]
+        # top_k_elements_expand = []
+        # sublist_sizes_expand = []
+        
+        # for sublist in global_averaged_all_is:
+        #     k = min(self.k, sublist.numel() - 1) # prevent deleting all elements
+        #     top_k_elements_expand.append(torch.topk(sublist, k, largest=False).values)
+        #     sublist_sizes_expand.append(k)
+            
+        
+        # flat_top_k_elements_expand = torch.cat(top_k_elements_expand)
+        # increase_idx = torch.topk(flat_top_k_elements_expand, self.b, largest=True).indices
+         ########### Experiments ###############
 
 
         def map_indices(flat_indices, sublist_sizes):
@@ -326,6 +358,10 @@ class RankAllocator(object):
         
         decrease_idx = map_indices(decrease_idx, sublist_sizes)
         increase_idx = map_indices(increase_idx, sublist_sizes)
+        
+        ########### Experiments ###############
+        # increase_idx = map_indices(increase_idx, sublist_sizes_expand)
+        ########### Experiments ###############
 
         # Mask out unimportant singular values 
         # with torch.no_grad():
