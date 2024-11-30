@@ -324,6 +324,15 @@ class RankAllocator(object):
         decrease_idx = torch.topk(flat_top_k_elements, self.b, largest=False).indices
         increase_idx = torch.topk(flat_top_k_elements, self.b, largest=True).indices
         
+        # breakpoint()
+        
+        
+        ### Randomly pick ###
+        # increase_idx = torch.randperm(flat_top_k_elements.size(0))[:self.b]
+
+        ###############
+        
+        
         
         ########### Experiments ###############
         # global_averaged_all_is =  [0.5*tensor + 0.5*tensor.mean() for tensor in all_is]
