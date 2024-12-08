@@ -1,6 +1,4 @@
-# Adapating DeBERTaV3 with AdaLoRA
-
-The folder contains the implementation of AdaLoRA in DeBERTaV3 using the updated package of `loralib`, which contains the implementation of AdaLoRA. AdaLoRA is present the following paper: [Adaptive Budget Allocation for Parameter-Efficient Fine-Tuning](https://arxiv.org/pdf/2303.10512.pdf) (ICLR 2023). 
+# Adapating DeBERTaV3 with ElaLoRA
 
 
 ## Setup Environment
@@ -43,9 +41,10 @@ examples/text-classification/run_glue.py \
 --model_name_or_path microsoft/deberta-v3-base \
 --task_name mnli \
 --apply_adalora --apply_lora --lora_type svd \
---target_rank 1  --lora_r 3  \
+--target_rank 1  --lora_r 2  \
 --reg_orth_coef 0.1 \
 --init_warmup 8000 --final_warmup 50000 --mask_interval 100 \
+--k 1 --b 2 \
 --beta1 0.85 --beta2 0.85 \
 --lora_module query,key,value,intermediate,layer.output,attention.output \
 --lora_alpha 16 \
@@ -58,6 +57,7 @@ examples/text-classification/run_glue.py \
 --save_strategy steps --save_steps 30000 \
 --logging_steps 500 \
 --seed 6 \
+--enable_scheduler True \
 --root_output_dir ./output/glue/mnli \
 --overwrite_output_dir
 ```

@@ -1,20 +1,16 @@
-# AdaLoRA: Adaptive Budget Allocation for Parameter-Efficient Fine-Tuning
-
-This pytorch package implements [Adaptive Budget Allocation for Parameter-Efficient Fine-Tuning](https://arxiv.org/pdf/2303.10512.pdf) (ICLR 2023). 
-
-**The implementaion of AdaLoRA has been merged to the parameter-efficient fine-tuning repository (🤗PEFT) supported by HuggingFace**: [🤗 PEFT: State-of-the-art Parameter-Efficient Fine-Tuning](https://github.com/huggingface/peft). Feel free to raise any issues when you using AdaLoRA in [PEFT](https://github.com/huggingface/peft) or our repository.   
-
+# ElaLoRA : 
+This is the implementation of CS242 project "ElaLoRA:" by Huandong Chang, Mingyuan Ma, and Zicheng Ma.
 
 ## Repository Overview
 
 There are several directories in this repo:
 
-* [loralib/](loralib) contains the source code of the updated package `loralib`, which include our implementation of AdaLoRA ([loralib/adalora.py](loralib/loralib/adalora.py)) and needs to be installed to run the examples;
-* [NLU/](NLU) contains an example implementation of AdaLoRA in DeBERTaV3-base, which produces the results on the GLUE benchmark;
-* [NLG_QA/](NLG_QA) contains an example implementation of AdaLoRA in BART-large and DeBERTaV3-base, which can be used to reproduce the results of summarization and question-answering tasks. 
+* [loralib/](loralib) contains the source code of the updated package `loralib`, which include our implementation of ElaLoRA ([loralib/elalora.py](loralib/loralib/elalora.py)) and needs to be installed to run the examples;
+* [NLU/](NLU) contains an example implementation of ElaLoRA in DeBERTaV3-base, which produces the results on the GLUE benchmark;
+* [NLG_QA/](NLG_QA) contains an example implementation of ElaLoRA in BART-large and DeBERTaV3-base, which can be used to reproduce the results of summarization and question-answering tasks. 
 
 
-## Quickstart of AdaLoRA
+## Quickstart of ElaLoRA
 
 1. Install the updated `loralib`:
 
@@ -23,7 +19,7 @@ There are several directories in this repo:
   ```
 
 
-2. Then we apply SVD-based adaptation of AdaLoRA. Here is an example (For more examples, please see [modeling_debertav2.py](NLU/src/transformers/models/deberta_v2/modeling_deberta_v2.py) for how we adapte DeBERTa): 
+2. Then we apply SVD-based adaptation of ElaLoRA. Here is an example (For more examples, please see [modeling_debertav2.py](NLU/src/transformers/models/deberta_v2/modeling_deberta_v2.py) for how we adapte DeBERTa): 
 
   ```python
   # ===== Before =====
@@ -42,7 +38,7 @@ There are several directories in this repo:
   loralib.mark_only_lora_as_trainable(model)
   ```
 
-3. During the training loop, we apply RankAllocator of AdaLoRA to update importance scores of incremental matrices and allocate budget accordingly. 
+3. During the training loop, we apply RankAllocator of ElaLoRA to update importance scores of incremental matrices and allocate budget accordingly. 
   ```python
   from loralib import RankAllocator
   from loralib import compute_orth_regu 
