@@ -185,7 +185,7 @@ class ModelArguments:
         metadata={"help": "Whether to apply LoRA or not."},
     )
     lora_type: Optional[str] = field(
-        default="frd",
+        default="svd",
         metadata={"help": "The lora type: frd or svd."},
     )
     lora_module: Optional[str] = field(
@@ -229,15 +229,15 @@ class ModelArguments:
         metadata={"help": "Regularization Loss Weight"},
     )
     reg_orth_coef: Optional[float] = field(
-        default=0.0,
+        default=0.1,
         metadata={"help": "Orthogonal regularization coefficient"},
     )
     masking_prob: Optional[float] = field(
         default=0.0,
         metadata={"help": "Token Masking Probability"},
     )
-    apply_adalora: Optional[bool] = field(
-        default=False,
+    apply_elalora: Optional[bool] = field(
+        default=True,
         metadata={"help": "Whether to apply rank selector or not."},
     )
     target_rank: Optional[int] = field(
@@ -641,7 +641,7 @@ def main():
 
 
     # Initialize the rankallocator
-    if model_args.lora_type == "svd" and model_args.apply_adalora:
+    if model_args.lora_type == "svd" and model_args.apply_elalora:
         rankallocator = RankAllocator(
             model, 
             lora_r=model_args.lora_r,

@@ -2,11 +2,9 @@ python -m torch.distributed.launch --master_port=8679 --nproc_per_node=1 \
 examples/text-classification/run_glue.py \
 --model_name_or_path microsoft/deberta-v3-base \
 --task_name cola \
---apply_lora --apply_adalora --lora_type svd \
+--apply_lora --apply_adalora \
 --target_rank 1   --lora_r 3   \
---reg_orth_coef 0.1 \
 --init_warmup 800 --final_warmup 3500 --mask_interval 10 \
---beta1 0.85 --beta2 0.85 \
 --lora_module query,key,value,intermediate,layer.output,attention.output \
 --lora_alpha 32 \
 --do_train --do_eval --max_seq_length 64 \
