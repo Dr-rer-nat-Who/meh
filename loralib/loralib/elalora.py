@@ -293,13 +293,13 @@ class RankAllocator(object):
         
             
         
-        if self.output_dir:
-            log_file = os.path.join(self.output_dir, "importance_log.txt")
-            os.makedirs(self.output_dir, exist_ok=True)
+        # if self.output_dir:
+        #     log_file = os.path.join(self.output_dir, "importance_log.txt")
+        #     os.makedirs(self.output_dir, exist_ok=True)
             
-            with open(log_file, 'a') as f:
-                f.write(f"Step {self.global_step}:\n")
-                f.write(f"{all_is}\n\n")
+        #     with open(log_file, 'a') as f:
+        #         f.write(f"Step {self.global_step}:\n")
+        #         f.write(f"{all_is}\n\n")
         
         # breakpoint()
         
@@ -562,13 +562,13 @@ class RankAllocator(object):
                         # import pdb; pdb.set_trace()
                         set_nested_attr(model, name, new_matrix_E)
             
-        # record impotrance score trend
-        if self.tb_writter is not None:
-            # Create a directory for the importance score plots
-            ipt_dir = os.path.join(self.output_dir, "ipt_plots")
-            os.makedirs(ipt_dir, exist_ok=True)
-            image_path = os.path.join(ipt_dir, f"step_{self.global_step}.png")
-            plot_ipt_graph(all_is, image_path)
+        # # record impotrance score trend
+        # if self.tb_writter is not None:
+        #     # Create a directory for the importance score plots
+        #     ipt_dir = os.path.join(self.output_dir, "ipt_plots")
+        #     os.makedirs(ipt_dir, exist_ok=True)
+        #     image_path = os.path.join(ipt_dir, f"step_{self.global_step}.png")
+        #     plot_ipt_graph(all_is, image_path)
 
         # record ranknum
         if self.tb_writter is not None:                    
@@ -603,7 +603,7 @@ class RankAllocator(object):
             self.update_ipt(model)
             # Budget schedule
             if self.enable_scheduler:
-                print("[Scheduler] Now is enabled")
+                # print("[Scheduler] Now is enabled")
                 self._b_scheduler(global_step)
             if global_step % self.mask_interval == 0 and self.b > 0:
                 print(f"[Scheduler] Now is masking, b={self.b}")
