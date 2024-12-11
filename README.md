@@ -43,7 +43,7 @@ pip install -e ../loralib/
 ## Example Usage
 
 Check the folder `NLU` for more details about reproducing the GLUE results. 
-An example of adapting DeBERTaV3-base on MNLI: 
+An example of adapting DeBERTaV3-base on RTE: 
 
 ```bash
 cd NLU
@@ -51,17 +51,17 @@ cd NLU
 python -m torch.distributed.launch --master_port=8679 --nproc_per_node=1 \
 examples/text-classification/run_glue.py \
 --model_name_or_path microsoft/deberta-v3-base \
---task_name mnli \
+--task_name rte \
 --apply_elalora --apply_lora \
 --lora_r 10 \
---init_warmup 500 --final_warmup 1000 --mask_interval 500 \
+--init_warmup 300 --final_warmup 500 --mask_interval 50 \
 --b 4 --k 2 \
 --lora_module query,key,value,intermediate,layer.output,attention.output \
 --lora_alpha 16 \
 --do_train --do_eval \
 --max_seq_length 256 \
 --per_device_train_batch_size 64 \
---learning_rate 5e-4 --num_train_epochs 1 \
+--learning_rate 1.2e-3 --num_train_epochs 50 \
 --warmup_steps 1000 \
 --cls_dropout 0.15 --weight_decay 0 \
 --evaluation_strategy steps --eval_steps 3000 \
@@ -69,7 +69,7 @@ examples/text-classification/run_glue.py \
 --logging_steps 500 \
 --seed 6 \
 --enable_scheduler True \
---root_output_dir ./debertabase/glue/mnli \
+--root_output_dir ./ela_debertabase/glue/rte \
 --overwrite_output_dir
 ```
 
