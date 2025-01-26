@@ -8,6 +8,7 @@ from typing import Optional, List
 from .utils import plot_rank, plot_ipt_graph
 import os
 
+import json
 import numpy as np
 
 class SVDLinear(nn.Linear, LoRALayer):
@@ -173,6 +174,7 @@ class RankAllocator(object):
     def set_total_step(self, total_step:int): 
         # Set total step number 
         self.total_step = total_step
+        # breakpoint()
         assert self.total_step>self.initial_warmup+self.final_warmup
 
     def get_rank_pattern(self):
@@ -252,6 +254,7 @@ class RankAllocator(object):
         return sum_ipt
 
     def mask_to_target_rank(self, model, curr_rank):
+        # breakpoint()
         is_dict = {}
         combine_dict = {} 
         singular_dict = {}
@@ -569,6 +572,17 @@ class RankAllocator(object):
         #     os.makedirs(ipt_dir, exist_ok=True)
         #     image_path = os.path.join(ipt_dir, f"step_{self.global_step}.png")
         #     plot_ipt_graph(all_is, image_path)
+        
+        # Save importance scores
+        if self.tb_writter is not None:
+            # Create a directory for the importance score plots
+            ipt_dir = os.path.join(self.output_dir, "ipt_scores")
+            os.makedirs(ipt_dir, exist_ok=True)
+            
+            ipt_score_path = os.path.join(ipt_dir, f"step_{self.global_step}.json")
+            with open(ipt_score_path, "w") as file:
+                all_is_serializable = [item.tolist() if isinstance(item, torch.Tensor) else item for item in all_is]
+                json.dump(all_is_serializable, file)
 
         # record ranknum
         if self.tb_writter is not None:                    

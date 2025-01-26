@@ -237,7 +237,7 @@ class ModelArguments:
         metadata={"help": "Token Masking Probability"},
     )
     apply_elalora: Optional[bool] = field(
-        default=True,
+        default=False,
         metadata={"help": "Whether to apply rank selector or not."},
     )
     target_rank: Optional[int] = field(
@@ -249,11 +249,11 @@ class ModelArguments:
         metadata={"help": "Specifying target number of total singular values"},
     )
     init_warmup: Optional[int] = field(
-        default=4500,
+        default=1,
         metadata={"help": "Total steps of inital warmup"},
     )
     final_warmup: Optional[int] = field(
-        default=12000,
+        default=1,
         metadata={"help": "Total steps of final fine-tuning"},
     )
     mask_interval: Optional[int] = field(

@@ -1,0 +1,23 @@
+python -m torch.distributed.launch --master_port=8679 --nproc_per_node=1 \
+examples/text-classification/run_glue.py \
+--model_name_or_path microsoft/deberta-v3-base \
+--task_name mrpc \
+--apply_elalora --apply_lora \
+--lora_r 10 \
+--init_warmup 300 --final_warmup 400 --mask_interval 50 \
+--b 4 --k 2 \
+--lora_module query,key,value,intermediate,layer.output,attention.output \
+--lora_alpha 16 \
+--do_train --do_eval \
+--max_seq_length 512 \
+--per_device_train_batch_size 64 \
+--learning_rate 1e-3 --num_train_epochs 20 \
+--warmup_steps 1000 \
+--cls_dropout 0.15 --weight_decay 0 \
+--evaluation_strategy steps --eval_steps 3000 \
+--save_strategy steps --save_steps 30000 \
+--logging_steps 500 \
+--seed 6 \
+--enable_scheduler True \
+--root_output_dir ./ela_debertabase/glue/mrpc \
+--overwrite_output_dir
