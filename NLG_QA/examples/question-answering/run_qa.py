@@ -149,9 +149,9 @@ class ModelArguments:
         default=0.0, #todo 
         metadata={"help": "Token Masking Probability"},
     )
-    apply_adalora: Optional[bool] = field(
+    apply_elalora: Optional[bool] = field(
         default=False,
-        metadata={"help": "Whether to apply AdaLoRA or not."},
+        metadata={"help": "Whether to apply ElaLoRA or not."},
     )
     # select_metric: Optional[str] = field(
     #     default="iptAB,magE,sumAB,prodE",
@@ -188,6 +188,18 @@ class ModelArguments:
     tb_writter_loginterval: Optional[int] = field(
         default=500,
         metadata={"help": ""},
+    )
+    k: Optional[int] = field(
+        default=1,
+        metadata={"help": "Max rank pruned/added for each matrix in each round"},
+    )
+    b: Optional[int] = field(
+        default=1,
+        metadata={"help": "Number of total ranks pruned/added for each round"},
+    )
+    enable_scheduler: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to enable scheduler or not."},
     )
 
 
@@ -790,7 +802,7 @@ def main():
         return metric.compute(predictions=p.predictions, references=p.label_ids)
 
     # Initialize the RankAllocator
-    if model_args.lora_type == "svd" and model_args.apply_adalora:
+    if model_args.lora_type == "svd" and model_args.apply_elalora:
         rankallocator = RankAllocator(
             model, 
             lora_r=model_args.lora_r,
@@ -803,6 +815,10 @@ def main():
             target_total_rank=model_args.target_total_rank, 
             tb_writter=tb_writter, 
             tb_writter_loginterval=model_args.tb_writter_loginterval,
+            k=model_args.k,
+            b=model_args.b,
+            output_dir=training_args.root_output_dir,
+            enable_scheduler=model_args.enable_scheduler,
         )
     else:
         rankallocator = None

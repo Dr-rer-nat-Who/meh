@@ -13,3 +13,6 @@ nltk
 py7zr 
 pyarrow==8.0.0 
 tensorboardX
+seaborn==0.12.2
+matplotlib==3.5.3
+tensorboard

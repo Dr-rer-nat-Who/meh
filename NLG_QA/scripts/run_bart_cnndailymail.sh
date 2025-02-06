@@ -17,4 +17,5 @@ examples/summarization/run_summarization_no_trainer.py \
 --seed 9 \
 --with_tracking \
 --tb_writter_loginterval 500 \
---output_dir ./output/bart-large/cnn_dailymail  
+--output_dir ./output/test
+# --output_dir ./output/bart-large/cnn_dailymail  
