@@ -329,10 +329,16 @@ def parse_args():
     parser.add_argument("--reg_loss_wgt", type=float, default=0.0, help="Regularization Loss Weight")
     parser.add_argument("--reg_orth_coef", type=float, default=0.0, help="Regularization Orthogonal Coefficient")
     # AdaLoRA Auguments
+    # parser.add_argument(
+    #     "--apply_adalora",
+    #     action="store_true",
+    #     help="Whether to apply AdaLoRA or not.",
+    # )
+    # ElaLoRA Auguments
     parser.add_argument(
-        "--apply_adalora",
+        "--apply_elalora",
         action="store_true",
-        help="Whether to apply AdaLoRA or not.",
+        help="Whether to apply ElaLoRA or not.",
     )
     parser.add_argument("--target_rank", type=int, default=8, help="Average target Rank")
     parser.add_argument("--target_total_rank", type=int, default=None, help="Speficify the total target rank")
@@ -342,6 +348,23 @@ def parse_args():
     parser.add_argument("--beta1", type=float, default=0.85, help="The coefficient of EMA")
     parser.add_argument("--beta2", type=float, default=0.85, help="The coefficient of EMA")
     parser.add_argument("--tb_writter_loginterval", type=int, default=500, help="")
+
+
+    # k: Optional[int] = field(
+    #     default=1,
+    #     metadata={"help": "Max rank pruned/added for each matrix in each round"},
+    # )
+    # b: Optional[int] = field(
+    #     default=1,
+    #     metadata={"help": "Number of total ranks pruned/added for each round"},
+    # )
+    # enable_scheduler: Optional[bool] = field(
+    #     default=False,
+    #     metadata={"help": "Whether to enable scheduler or not."},
+    # )
+    parser.add_argument("--k" , type=float, default=1, help="Max rank pruned/added for each matrix in each round")
+    parser.add_argument("--b" , type=float, default=1, help="Number of total ranks pruned/added for each round")
+    parser.add_argument("--enable_scheduler", action="store_true", help="Whether to enable scheduler or not.")
 
     args = parser.parse_args()
 
@@ -703,7 +726,7 @@ def main():
         model, optimizer, train_dataloader, eval_dataloader, lr_scheduler
     )
     # Apply RankSelection
-    if args.lora_type == "svd" and args.apply_adalora:
+    if args.lora_type == "svd" and args.apply_elalora:
         rankallocator = RankAllocator(
             model, 
             lora_r=args.lora_r,
@@ -716,6 +739,10 @@ def main():
             target_total_rank=args.target_total_rank, 
             tb_writter=tb_writter, 
             tb_writter_loginterval=args.tb_writter_loginterval,
+            k=args.k,
+            b=args.b,
+            enable_scheduler=args.enable_scheduler,
+            output_dir=args.output_dir,
         )
     else:
         rankallocator = None
