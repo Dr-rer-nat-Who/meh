@@ -312,7 +312,7 @@ class RankAllocator(object):
         sublist_sizes = [] # how many elements are picked from each sublist
         
         for sublist in all_is:
-            k = min(self.k, sublist.numel() - 1) # prevent deleting all elements
+            k = int(min(self.k, sublist.numel() - 1)) # prevent deleting all elements
             top_k_elements.append(torch.topk(sublist, k, largest=False).values)
             sublist_sizes.append(k)
         
