@@ -112,6 +112,7 @@ def plot_rank(data, file_path, global_min=None, global_max=None):
     plt.tight_layout()
     # plt.show()
     plt.savefig(file_path, bbox_inches='tight')
+    plt.close()
 
 
 def plot_ipt_graph(all_is, file_path):

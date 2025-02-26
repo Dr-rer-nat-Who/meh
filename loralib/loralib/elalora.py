@@ -612,14 +612,15 @@ class RankAllocator(object):
     def update_and_mask(self, model, global_step):
         self.global_step=global_step
         mask_threshold = None
-        if self.initial_warmup < global_step < self.total_step-self.final_warmup:
+        # if self.initial_warmup < global_step < self.total_step-self.final_warmup:
+        if global_step<self.total_step-self.final_warmup:
             # Update importance scores element-wise 
             self.update_ipt(model)
             # Budget schedule
             if self.enable_scheduler:
                 # print("[Scheduler] Now is enabled")
                 self._b_scheduler(global_step)
-            if global_step % self.mask_interval == 0 and self.b > 0:
+            if global_step > self.initial_warmup and (global_step-self.initial_warmup) % self.mask_interval == 0 and self.b > 0:
                 print(f"[Scheduler] Now is masking, b={self.b}")
                 mask_threshold = self.mask_to_target_rank(model, 0)
                 
