@@ -206,13 +206,12 @@ class RankAllocator(object):
                     self.ipt[n] = torch.zeros_like(p)
                     self.exp_avg_ipt[n] = torch.zeros_like(p) 
                     self.exp_avg_unc[n] = torch.zeros_like(p) 
-                                # 检查当前参数和 exp_avg_ipt 的形状差异
-                                # 检查当前参数和 exp_avg_ipt 的形状差异
+                #  Check the shape difference between exp_avg_ipt and current parameter 
                 if self.exp_avg_ipt[n].shape != p.shape:
                     new_shape = list(p.shape)
                     old_shape = list(self.exp_avg_ipt[n].shape)
                     
-                    # 针对每个维度判断是否需要扩展
+                    # for each dimension check whether an expansion is needed
                     padding = []
                     for i in range(len(new_shape) - 1, -1, -1):
                         if old_shape[i] < new_shape[i]:
@@ -221,7 +220,7 @@ class RankAllocator(object):
                         else:
                             padding.extend([0, 0])
                     
-                    # 将所有需要扩展的维度进行填充
+                    # Pad each dimension that requires expansion
                     self.exp_avg_ipt[n] = torch.nn.functional.pad(self.exp_avg_ipt[n], tuple(padding), "constant", 0)
                     self.exp_avg_unc[n] = torch.nn.functional.pad(self.exp_avg_unc[n], tuple(padding), "constant", 0)
                 with torch.no_grad():
