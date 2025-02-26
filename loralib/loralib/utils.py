@@ -77,13 +77,20 @@ def lora_state_dict(model: nn.Module, bias: str = 'none') -> Dict[str, torch.Ten
 #     plt.savefig(file_path, bbox_inches='tight')
 
 def plot_rank(data, file_path, global_min=None, global_max=None):
-    layers = sorted(set(int(k.split(".")[3]) for k in data.keys()))
+
+    layer_index = 3
+    # Check if k.split(".")[3] is the correct index for layers
+    # which means k.split(".")[3] is an integer string
+    if not all(k.split(".")[layer_index].isdigit() for k in data.keys()):
+        layer_index = 4
+
+    layers = sorted(set(int(k.split(".")[layer_index]) for k in data.keys()))
     weights = sorted(set(".".join(k.split(".")[4:-1]) for k in data.keys()))
 
     heatmap_data = pd.DataFrame(index=weights, columns=layers)
 
     for key, value in data.items():
-        layer = int(key.split(".")[3])
+        layer = int(key.split(".")[layer_index])
         weight = ".".join(key.split(".")[4:-1])
         heatmap_data.loc[weight, layer] = value
 

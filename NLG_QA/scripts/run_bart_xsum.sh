@@ -1,11 +1,10 @@
-accelerate launch --multi_gpu --num_machine=1 --num_processes=8 \
---main_process_port=8679 --mixed_precision="no" \
+accelerate launch --multi_gpu --num_machine=1 --num_processes=1 --main_process_port=8679 --mixed_precision="no" \
 examples/summarization/run_summarization_no_trainer.py \
 --model_name_or_path facebook/bart-large \
 --dataset_name xsum \
---apply_lora --apply_adalora \
---lora_type svd --target_rank 8 --lora_r 12 \
---lora_alpha 32 \
+--apply_lora --apply_elalora --lora_type svd \
+--target_rank 2  --lora_r 2  \
+--b 1 --k 1 \
 --reg_orth_coef 0.1 \
 --init_warmup 6000 --final_warmup 25000 --mask_interval 100 \
 --beta1 0.85 --beta2 0.85 \
@@ -16,6 +15,7 @@ examples/summarization/run_summarization_no_trainer.py \
 --pad_to_max_length --num_beams 8 \
 --per_device_eval_batch_size 8 \
 --seed 9 \
+--enable_scheduler \
 --with_tracking \
 --tb_writter_loginterval 500 \
 --output_dir ./output/bart-large/xsum 
