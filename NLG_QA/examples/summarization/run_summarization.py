@@ -23,6 +23,7 @@ import os
 import sys
 from dataclasses import dataclass, field
 from typing import Optional
+from loralib import RankAllocator 
 
 import datasets
 import nltk  # Here to have a nice missing dependency error message early on
@@ -45,10 +46,14 @@ from transformers import (
     Seq2SeqTrainingArguments,
     set_seed,
 )
-from transformers.trainer_utils import get_last_checkpoint
+from transformers.trainer_utils import get_last_checkpoint, is_main_process
 from transformers.utils import check_min_version, is_offline_mode, send_example_telemetry
 from transformers.utils.versions import require_version
 
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except ImportError:
+    from tensorboardX import SummaryWriter
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.21.0.dev0")
@@ -116,6 +121,111 @@ class ModelArguments:
             )
         },
     )
+    apply_lora: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to apply LoRA or not."},
+    )
+    lora_type: Optional[str] = field(
+        default="svd",
+        metadata={"help": "The lora type: frd or svd."},
+    )
+    lora_module: Optional[str] = field(
+        default="query,value",
+        metadata={"help": "The modules applying lora: query,key,value,intermediate,layer.output,attention.output"},
+    )
+    lora_alpha: Optional[int] = field(
+        default=None,
+        metadata={"help": "LoRA alpha"},
+    )
+    lora_r: Optional[int] = field(
+        default=None,
+        metadata={"help": "LoRA r"},
+    )
+    lora_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "The file path of LoRA parameters."},
+    )
+    apply_adapter: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to apply adapter or not."},
+    )
+    adapter_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "The file path of adapter parameters."},
+    )
+    adapter_type: Optional[str] = field(
+        default='houlsby',
+        metadata={"help": "houlsby or pfeiffer"},
+    )
+    adapter_size: Optional[int] = field(
+        default=64,
+        metadata={"help": "8, 16, 32, 64"},
+    )
+    apply_bitfit: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to apply bitfit or not."},
+    )
+    reg_loss_wgt: Optional[float] = field(
+        default=0.0,
+        metadata={"help": "Regularization Loss Weight"},
+    )
+    reg_orth_coef: Optional[float] = field(
+        default=0.1,
+        metadata={"help": "Orthogonal regularization coefficient"},
+    )
+    masking_prob: Optional[float] = field(
+        default=0.0,
+        metadata={"help": "Token Masking Probability"},
+    )
+    apply_elalora: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to apply rank selector or not."},
+    )
+    target_rank: Optional[int] = field(
+        default=16,
+        metadata={"help": "Average target rank."},
+    )
+    target_total_rank: Optional[int] = field(
+        default=None,
+        metadata={"help": "Specifying target number of total singular values"},
+    )
+    init_warmup: Optional[int] = field(
+        default=1,
+        metadata={"help": "Total steps of inital warmup"},
+    )
+    final_warmup: Optional[int] = field(
+        default=1,
+        metadata={"help": "Total steps of final fine-tuning"},
+    )
+    mask_interval: Optional[int] = field(
+        default=10,
+        metadata={"help": "Masking interval"},
+    )
+    beta1: Optional[float] = field(
+        default=0.85,
+        metadata={"help": "The coefficient of EMA"},
+    )
+    beta2: Optional[float] = field(
+        default=0.85,
+        metadata={"help": "The coefficient of EMA"},
+    )
+    tb_writter_loginterval: Optional[int] = field(
+        default=500,
+        metadata={"help": "The logging interval for tb_writter."},
+    )
+    k: Optional[int] = field(
+        default=1,
+        metadata={"help": "Max rank pruned/added for each matrix in each round"},
+    )
+    b: Optional[int] = field(
+        default=1,
+        metadata={"help": "Number of total ranks pruned/added for each round"},
+    )
+    enable_scheduler: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to enable scheduler or not."},
+    )
+
 
 
 @dataclass
@@ -337,6 +447,16 @@ def main():
             "You're running a t5 model but didn't provide a source prefix, which is the expected, e.g. with "
             "`--source_prefix 'summarize: ' `"
         )
+    
+    # Setup output dir 
+    os.makedirs(training_args.root_output_dir, exist_ok=True)
+    training_args.output_dir = os.path.join(training_args.root_output_dir, "model")
+    training_args.logging_dir = os.path.join(training_args.root_output_dir, "log")
+    training_args.run_name = training_args.output_dir 
+
+    if "debug" in training_args.output_dir:
+        import ipdb 
+        ipdb.set_trace()
 
     # Detecting last checkpoint.
     last_checkpoint = None
@@ -353,6 +473,13 @@ def main():
                 "the `--output_dir` or add `--overwrite_output_dir` to train from scratch."
             )
 
+
+     # Set tb_writter 
+    # if is_main_process(training_args.local_rank):
+    #     tb_writter = SummaryWriter(log_dir=training_args.logging_dir)
+    # else:
+    #     tb_writter = None
+        
     # Set seed before initializing model.
     set_seed(training_args.seed)
 
@@ -403,6 +530,15 @@ def main():
         cache_dir=model_args.cache_dir,
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
+        apply_lora=model_args.apply_lora,
+        lora_type=model_args.lora_type, 
+        lora_module=model_args.lora_module, 
+        lora_alpha=model_args.lora_alpha,
+        lora_r=model_args.lora_r,
+        apply_adapter=model_args.apply_adapter,
+        adapter_type=model_args.adapter_type,
+        adapter_size=model_args.adapter_size,
+        reg_loss_wgt=model_args.reg_loss_wgt,
     )
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
@@ -452,6 +588,63 @@ def main():
             )
 
     prefix = data_args.source_prefix if data_args.source_prefix is not None else ""
+    
+    
+    trainable_params = []
+    if model_args.apply_lora:
+        if model_args.lora_path is not None:
+            lora_state_dict = torch.load(model_args.lora_path)
+            logger.info(f"Apply LoRA state dict from {model_args.lora_path}.")
+            logger.info(lora_state_dict.keys())
+            model.load_state_dict(lora_state_dict, strict=False)
+        trainable_params.append('lora')
+
+    if model_args.apply_adapter:
+        if model_args.adapter_path is not None:
+            adapter_state_dict = torch.load(os.path.join(model_args.adapter_path, 'pytorch_adapter.bin'))
+            head_state_dict = torch.load(os.path.join(model_args.adapter_path, 'pytorch_model_head.bin'))
+            added_state_dict = {}
+            for k, v in adapter_state_dict.items():
+                new_k = k.replace(data_args.task_name + '.', '').replace('adapter_down.0.', 'adapter_A.').replace('adapter_up.', 'adapter_B.').replace('.adapters.', '.adapter.')
+                added_state_dict[new_k] = v
+            for k, v in head_state_dict.items():
+                new_k = k.replace('heads.' + data_args.task_name + '.1', 'classifier.dense').replace('heads.' + data_args.task_name + '.4', 'classifier.out_proj')
+                added_state_dict[new_k] = v
+            logger.info(f"Apply adapter state dict from {model_args.adapter_path}.")
+            logger.info(added_state_dict.keys())
+            missing_keys, unexpected_keys = model.load_state_dict(added_state_dict, strict=False)
+            for missing_key in missing_keys:
+                assert 'adapter' not in missing_key, missing_key + ' is missed in the model'
+            assert len(unexpected_keys) == 0, 'Unexpected keys ' + str(unexpected_keys)
+        trainable_params.append('adapter')
+
+    if model_args.apply_bitfit:
+        trainable_params.append('bias')
+
+    num_param = 0 
+    if len(trainable_params) > 0:
+        for name, param in model.named_parameters():
+            if name.startswith('deberta') or name.startswith('roberta'):
+                param.requires_grad = False
+                for trainable_param in trainable_params:
+                    if trainable_param in name:
+                        param.requires_grad = True
+                        sub_num_param = 1 
+                        for dim in param.shape:
+                            sub_num_param *= dim  
+                        num_param += sub_num_param 
+                        break
+            else:
+                param.requires_grad = True
+    else:
+        for name, param in model.named_parameters():
+            sub_num_param = 1 
+            for dim in param.shape:
+                sub_num_param *= dim  
+            num_param += sub_num_param
+    logger.info("Number of Trainable Parameters: %d"%(int(num_param))) 
+    # if tb_writter is not None: 
+    #     tb_writter.add_scalar("train/num_train_param", num_param, 0)
 
     # Preprocessing the datasets.
     # We need to tokenize inputs and targets.
@@ -632,6 +825,29 @@ def main():
         result = {k: round(v, 4) for k, v in result.items()}
         return result
 
+
+    # Initialize the rankallocator
+    if model_args.lora_type == "svd" and model_args.apply_elalora:
+        rankallocator = RankAllocator(
+            model, 
+            lora_r=model_args.lora_r,
+            target_rank=model_args.target_rank,
+            init_warmup=model_args.init_warmup, 
+            final_warmup=model_args.final_warmup,
+            mask_interval=model_args.mask_interval, 
+            beta1=model_args.beta1, 
+            beta2=model_args.beta2, 
+            target_total_rank=model_args.target_total_rank, 
+            # tb_writter=tb_writter, 
+            tb_writter_loginterval=model_args.tb_writter_loginterval,
+            k=model_args.k,
+            b=model_args.b,
+            output_dir=training_args.root_output_dir,
+            enable_scheduler=model_args.enable_scheduler,
+        )
+    else:
+        rankallocator = None
+        
     # Initialize our Trainer
     trainer = Seq2SeqTrainer(
         model=model,
@@ -640,8 +856,13 @@ def main():
         eval_dataset=eval_dataset if training_args.do_eval else None,
         tokenizer=tokenizer,
         data_collator=data_collator,
+        rankallocator=rankallocator,
+        model_args=model_args,
         compute_metrics=compute_metrics if training_args.predict_with_generate else None,
+        # tb_writter=tb_writter, 
     )
+
+
 
     # Training
     if training_args.do_train:
@@ -705,22 +926,30 @@ def main():
                 with open(output_prediction_file, "w") as writer:
                     writer.write("\n".join(predictions))
 
-    kwargs = {"finetuned_from": model_args.model_name_or_path, "tasks": "summarization"}
-    if data_args.dataset_name is not None:
-        kwargs["dataset_tags"] = data_args.dataset_name
-        if data_args.dataset_config_name is not None:
-            kwargs["dataset_args"] = data_args.dataset_config_name
-            kwargs["dataset"] = f"{data_args.dataset_name} {data_args.dataset_config_name}"
-        else:
-            kwargs["dataset"] = data_args.dataset_name
+    
+    # if tb_writter is not None:
+    #     tb_writter.close() 
 
-    if data_args.lang is not None:
-        kwargs["language"] = data_args.lang
+    if rankallocator is not None:
+        rank_pattern = rankallocator.get_rank_pattern()
+        with open(os.path.join(training_args.root_output_dir, "rank_pattern.json"), "w") as f:
+            json.dump(rank_pattern, f)
+    # kwargs = {"finetuned_from": model_args.model_name_or_path, "tasks": "summarization"}
+    # if data_args.dataset_name is not None:
+    #     kwargs["dataset_tags"] = data_args.dataset_name
+    #     if data_args.dataset_config_name is not None:
+    #         kwargs["dataset_args"] = data_args.dataset_config_name
+    #         kwargs["dataset"] = f"{data_args.dataset_name} {data_args.dataset_config_name}"
+    #     else:
+    #         kwargs["dataset"] = data_args.dataset_name
 
-    if training_args.push_to_hub:
-        trainer.push_to_hub(**kwargs)
-    else:
-        trainer.create_model_card(**kwargs)
+    # if data_args.lang is not None:
+    #     kwargs["language"] = data_args.lang
+
+    # if training_args.push_to_hub:
+    #     trainer.push_to_hub(**kwargs)
+    # else:
+    #     trainer.create_model_card(**kwargs)
 
     return results
 
