@@ -572,8 +572,9 @@ class RankAllocator(object):
         #     image_path = os.path.join(ipt_dir, f"step_{self.global_step}.png")
         #     plot_ipt_graph(all_is, image_path)
         
+        ipt_score_boolean = True
         # Save importance scores
-        if self.tb_writter is not None:
+        if ipt_score_boolean:
             # Create a directory for the importance score plots
             ipt_dir = os.path.join(self.output_dir, "ipt_scores")
             os.makedirs(ipt_dir, exist_ok=True)

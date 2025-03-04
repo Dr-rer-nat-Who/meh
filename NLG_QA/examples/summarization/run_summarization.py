@@ -416,12 +416,49 @@ def main():
     # information sent is the one passed as arguments along with your Python/PyTorch versions.
     send_example_telemetry("run_summarization", model_args, data_args)
 
+        # Setup output dir 
+    os.makedirs(training_args.root_output_dir, exist_ok=True)
+    training_args.output_dir = os.path.join(training_args.root_output_dir, "model")
+    training_args.logging_dir = os.path.join(training_args.root_output_dir, "log")
+    training_args.run_name = training_args.output_dir 
+
+    if "debug" in training_args.output_dir:
+        import ipdb 
+        ipdb.set_trace()
+
+    # Detecting last checkpoint.
+    last_checkpoint = None
+    if os.path.isdir(training_args.output_dir) and training_args.do_train and not training_args.overwrite_output_dir:
+        last_checkpoint = get_last_checkpoint(training_args.output_dir)
+        if last_checkpoint is None and len(os.listdir(training_args.output_dir)) > 0:
+            raise ValueError(
+                f"Output directory ({training_args.output_dir}) already exists and is not empty. "
+                "Use --overwrite_output_dir to overcome."
+            )
+        elif last_checkpoint is not None and training_args.resume_from_checkpoint is None:
+            logger.info(
+                f"Checkpoint detected, resuming training at {last_checkpoint}. To avoid this behavior, change "
+                "the `--output_dir` or add `--overwrite_output_dir` to train from scratch."
+            )
+            
     # Setup logging
     logging.basicConfig(
+        filename= os.path.join(training_args.root_output_dir, 'log.txt'), filemode='a',
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S",
-        handlers=[logging.StreamHandler(sys.stdout)],
+        # handlers=[logging.StreamHandler(sys.stdout)],
     )
+    
+    logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+    logger.setLevel(logging.INFO if is_main_process(training_args.local_rank) else logging.WARN)
+    logger.info(training_args.root_output_dir)
+
+    # Log on each process the small summary:
+    logger.warning(
+        f"Process rank: {training_args.local_rank}, device: {training_args.device}, n_gpu: {training_args.n_gpu}"
+        + f"distributed training: {bool(training_args.local_rank != -1)}"
+    )
+    
     log_level = training_args.get_process_log_level()
     logger.setLevel(log_level)
     datasets.utils.logging.set_verbosity(log_level)
@@ -448,37 +485,14 @@ def main():
             "`--source_prefix 'summarize: ' `"
         )
     
-    # Setup output dir 
-    os.makedirs(training_args.root_output_dir, exist_ok=True)
-    training_args.output_dir = os.path.join(training_args.root_output_dir, "model")
-    training_args.logging_dir = os.path.join(training_args.root_output_dir, "log")
-    training_args.run_name = training_args.output_dir 
-
-    if "debug" in training_args.output_dir:
-        import ipdb 
-        ipdb.set_trace()
-
-    # Detecting last checkpoint.
-    last_checkpoint = None
-    if os.path.isdir(training_args.output_dir) and training_args.do_train and not training_args.overwrite_output_dir:
-        last_checkpoint = get_last_checkpoint(training_args.output_dir)
-        if last_checkpoint is None and len(os.listdir(training_args.output_dir)) > 0:
-            raise ValueError(
-                f"Output directory ({training_args.output_dir}) already exists and is not empty. "
-                "Use --overwrite_output_dir to overcome."
-            )
-        elif last_checkpoint is not None and training_args.resume_from_checkpoint is None:
-            logger.info(
-                f"Checkpoint detected, resuming training at {last_checkpoint}. To avoid this behavior, change "
-                "the `--output_dir` or add `--overwrite_output_dir` to train from scratch."
-            )
 
 
-     # Set tb_writter 
-    # if is_main_process(training_args.local_rank):
-    #     tb_writter = SummaryWriter(log_dir=training_args.logging_dir)
-    # else:
-    #     tb_writter = None
+
+    # Set tb_writter 
+    if is_main_process(training_args.local_rank):
+        tb_writter = SummaryWriter(log_dir=training_args.logging_dir)
+    else:
+        tb_writter = None
         
     # Set seed before initializing model.
     set_seed(training_args.seed)
@@ -624,7 +638,7 @@ def main():
     num_param = 0 
     if len(trainable_params) > 0:
         for name, param in model.named_parameters():
-            if name.startswith('deberta') or name.startswith('roberta'):
+            if name.startswith('deberta') or name.startswith('roberta') or name.startswith('model'):
                 param.requires_grad = False
                 for trainable_param in trainable_params:
                     if trainable_param in name:
@@ -643,8 +657,8 @@ def main():
                 sub_num_param *= dim  
             num_param += sub_num_param
     logger.info("Number of Trainable Parameters: %d"%(int(num_param))) 
-    # if tb_writter is not None: 
-    #     tb_writter.add_scalar("train/num_train_param", num_param, 0)
+    if tb_writter is not None: 
+        tb_writter.add_scalar("train/num_train_param", num_param, 0)
 
     # Preprocessing the datasets.
     # We need to tokenize inputs and targets.
@@ -838,7 +852,7 @@ def main():
             beta1=model_args.beta1, 
             beta2=model_args.beta2, 
             target_total_rank=model_args.target_total_rank, 
-            # tb_writter=tb_writter, 
+            tb_writter=tb_writter, 
             tb_writter_loginterval=model_args.tb_writter_loginterval,
             k=model_args.k,
             b=model_args.b,
@@ -859,7 +873,7 @@ def main():
         rankallocator=rankallocator,
         model_args=model_args,
         compute_metrics=compute_metrics if training_args.predict_with_generate else None,
-        # tb_writter=tb_writter, 
+        tb_writter=tb_writter, 
     )
 
 
@@ -927,13 +941,15 @@ def main():
                     writer.write("\n".join(predictions))
 
     
-    # if tb_writter is not None:
-    #     tb_writter.close() 
+    if tb_writter is not None:
+        tb_writter.close() 
 
-    if rankallocator is not None:
-        rank_pattern = rankallocator.get_rank_pattern()
-        with open(os.path.join(training_args.root_output_dir, "rank_pattern.json"), "w") as f:
-            json.dump(rank_pattern, f)
+    # if rankallocator is not None:
+    #     rank_pattern = rankallocator.get_rank_pattern()
+    #     with open(os.path.join(training_args.root_output_dir, "rank_pattern.json"), "w") as f:
+    #         json.dump(rank_pattern, f)
+    
+    
     # kwargs = {"finetuned_from": model_args.model_name_or_path, "tasks": "summarization"}
     # if data_args.dataset_name is not None:
     #     kwargs["dataset_tags"] = data_args.dataset_name
