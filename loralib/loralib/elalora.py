@@ -572,6 +572,8 @@ class RankAllocator(object):
         #     image_path = os.path.join(ipt_dir, f"step_{self.global_step}.png")
         #     plot_ipt_graph(all_is, image_path)
         
+        # breakpoint()
+        
         ipt_score_boolean = True
         # Save importance scores
         if ipt_score_boolean:
@@ -600,8 +602,10 @@ class RankAllocator(object):
             os.makedirs(rank_distribution_dir, exist_ok=True)
             image_path = os.path.join(rank_distribution_dir, f"step_{self.global_step}.png")
             
-            plotting_global_max = max(10, self.lora_init_rank*2)    
-            plot_rank(self.rank_pattern, image_path, 1, plotting_global_max)
+            plotting_global_max = max(10, self.lora_init_rank*2)
+            
+            model_start=next(iter(self.rank_pattern)).split(".")[0]    
+            plot_rank(self.rank_pattern, image_path, 1, plotting_global_max, model_start)
                             
 
         return mask_threshold
@@ -648,4 +652,4 @@ def compute_orth_regu(model, regu_weight=0.1):
             I.requires_grad = False
             regu_loss += torch.norm(para_cov-I, p="fro")
             num_param += 1
-    return regu_weight*regu_loss/num_param
+    return regu_weight*regu_loss/num_par

@@ -76,7 +76,7 @@ def lora_state_dict(model: nn.Module, bias: str = 'none') -> Dict[str, torch.Ten
 #     # plt.show()
 #     plt.savefig(file_path, bbox_inches='tight')
 
-def plot_rank(data, file_path, global_min=None, global_max=None):
+def plot_rank(data, file_path, global_min=None, global_max=None, model_start="DeBerta"):
 
     layer_index = 3
     # Check if k.split(".")[3] is the correct index for layers
@@ -85,13 +85,27 @@ def plot_rank(data, file_path, global_min=None, global_max=None):
         layer_index = 4
 
     layers = sorted(set(int(k.split(".")[layer_index]) for k in data.keys()))
-    weights = sorted(set(".".join(k.split(".")[4:-1]) for k in data.keys()))
+    
+    def extract_weight_name(k):
+        """Extracts weight name while differentiating encoder and decoder layers"""
+        parts = k.split(".")
+        module_type = parts[1]  # "encoder" or "decoder"
+        weight_name = ".".join(parts[4:-1])  # Extract weight name
+        return f"{module_type}.{weight_name}"  # Ensure encoder and decoder are distinct
+    
+    if model_start=="model":
+        weights = sorted(set(extract_weight_name(k) for k in data.keys()))    
+    else:
+        weights = sorted(set(".".join(k.split(".")[4:-1]) for k in data.keys()))
 
     heatmap_data = pd.DataFrame(index=weights, columns=layers)
 
     for key, value in data.items():
         layer = int(key.split(".")[layer_index])
-        weight = ".".join(key.split(".")[4:-1])
+        if model_start=="model":
+            weight = extract_weight_name(key)
+        else:
+            weight = ".".join(key.split(".")[4:-1])
         heatmap_data.loc[weight, layer] = value
 
     heatmap_data = heatmap_data.astype(float)  # Ensure numeric values
