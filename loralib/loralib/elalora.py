@@ -652,4 +652,4 @@ def compute_orth_regu(model, regu_weight=0.1):
             I.requires_grad = False
             regu_loss += torch.norm(para_cov-I, p="fro")
             num_param += 1
-    return regu_weight*regu_loss/num_par
+    return regu_weight*regu_loss/num_param
