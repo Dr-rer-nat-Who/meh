@@ -894,9 +894,13 @@ def main():
         )
         metrics["train_samples"] = min(max_train_samples, len(train_dataset))
 
+
+        
         trainer.log_metrics("train", metrics)
         trainer.save_metrics("train", metrics)
         trainer.save_state()
+        
+        logger.info(f"Training metrics: {metrics}")
 
     # Evaluation
     results = {}
@@ -914,6 +918,9 @@ def main():
 
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
+        
+        for key in metrics:
+            logger.info("{key}: {value}:".format(key=key, value=metrics[key]))
 
     if training_args.do_predict:
         logger.info("*** Predict ***")
