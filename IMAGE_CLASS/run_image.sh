@@ -1,0 +1,30 @@
+python image-classification/run_image_classification.py \
+    --dataset_name beans \
+    --output_dir ./beans_outputs/ \
+    --remove_unused_columns False \
+    --label_column_name labels \
+    --do_train \
+    --do_eval \
+    --push_to_hub \
+    --push_to_hub_model_id vit-base-beans \
+    --apply_lora --apply_elalora --lora_type svd \
+    --target_rank 6  --lora_r 6  --lora_alpha 16 \
+    --mask_interval 200 \
+    --b 6 --k 2 \
+    --init_warmup 8000 --final_warmup 10000 --mask_interval 200 \
+    --beta1 0.85 --beta2 0.85 \
+    --lora_module q_proj,k_proj,v_proj,out_proj,fc1,fc2 \
+    --enable_scheduler \
+    --tb_writter_loginterval 50000 \
+    --learning_rate 2e-5 \
+    --num_train_epochs 5 \
+    --per_device_train_batch_size 8 \
+    --per_device_eval_batch_size 8 \
+    --logging_strategy steps \
+    --logging_steps 10 \
+    --eval_strategy epoch \
+    --save_strategy epoch \
+    --load_best_model_at_end True \
+    --save_total_limit 3 \
+    --seed 1337 \
+    
