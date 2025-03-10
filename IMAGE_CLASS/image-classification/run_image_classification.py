@@ -23,6 +23,7 @@ import evaluate
 import numpy as np
 import torch
 from datasets import load_dataset
+from loralib import RankAllocator
 from PIL import Image
 from torchvision.transforms import (
     CenterCrop,
@@ -47,10 +48,14 @@ from transformers import (
     TrainingArguments,
     set_seed,
 )
-from transformers.trainer_utils import get_last_checkpoint
+from transformers.trainer_utils import get_last_checkpoint, is_main_process
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
 
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except ImportError:
+    from tensorboardX import SummaryWriter
 
 """ Fine-tuning a 🤗 Transformers model for image classification"""
 
@@ -118,6 +123,110 @@ class DataTrainingArguments:
     label_column_name: str = field(
         default="label",
         metadata={"help": "The name of the dataset column containing the labels. Defaults to 'label'."},
+    )
+    apply_lora: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to apply LoRA or not."},
+    )
+    lora_type: Optional[str] = field(
+        default="svd",
+        metadata={"help": "The lora type: frd or svd."},
+    )
+    lora_module: Optional[str] = field(
+        default="query,value",
+        metadata={"help": "The modules applying lora: query,key,value,intermediate,layer.output,attention.output"},
+    )
+    lora_alpha: Optional[int] = field(
+        default=None,
+        metadata={"help": "LoRA alpha"},
+    )
+    lora_r: Optional[int] = field(
+        default=None,
+        metadata={"help": "LoRA r"},
+    )
+    lora_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "The file path of LoRA parameters."},
+    )
+    apply_adapter: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to apply adapter or not."},
+    )
+    adapter_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "The file path of adapter parameters."},
+    )
+    adapter_type: Optional[str] = field(
+        default='houlsby',
+        metadata={"help": "houlsby or pfeiffer"},
+    )
+    adapter_size: Optional[int] = field(
+        default=64,
+        metadata={"help": "8, 16, 32, 64"},
+    )
+    apply_bitfit: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to apply bitfit or not."},
+    )
+    reg_loss_wgt: Optional[float] = field(
+        default=0.0,
+        metadata={"help": "Regularization Loss Weight"},
+    )
+    reg_orth_coef: Optional[float] = field(
+        default=0.1,
+        metadata={"help": "Orthogonal regularization coefficient"},
+    )
+    masking_prob: Optional[float] = field(
+        default=0.0,
+        metadata={"help": "Token Masking Probability"},
+    )
+    apply_elalora: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to apply rank selector or not."},
+    )
+    target_rank: Optional[int] = field(
+        default=16,
+        metadata={"help": "Average target rank."},
+    )
+    target_total_rank: Optional[int] = field(
+        default=None,
+        metadata={"help": "Specifying target number of total singular values"},
+    )
+    init_warmup: Optional[int] = field(
+        default=1,
+        metadata={"help": "Total steps of inital warmup"},
+    )
+    final_warmup: Optional[int] = field(
+        default=1,
+        metadata={"help": "Total steps of final fine-tuning"},
+    )
+    mask_interval: Optional[int] = field(
+        default=10,
+        metadata={"help": "Masking interval"},
+    )
+    beta1: Optional[float] = field(
+        default=0.85,
+        metadata={"help": "The coefficient of EMA"},
+    )
+    beta2: Optional[float] = field(
+        default=0.85,
+        metadata={"help": "The coefficient of EMA"},
+    )
+    tb_writter_loginterval: Optional[int] = field(
+        default=500,
+        metadata={"help": "The logging interval for tb_writter."},
+    )
+    k: Optional[int] = field(
+        default=1,
+        metadata={"help": "Max rank pruned/added for each matrix in each round"},
+    )
+    b: Optional[int] = field(
+        default=1,
+        metadata={"help": "Number of total ranks pruned/added for each round"},
+    )
+    enable_scheduler: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to enable scheduler or not."},
     )
 
     def __post_init__(self):
@@ -196,10 +305,16 @@ def main():
 
     # Setup logging
     logging.basicConfig(
-        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+        filename= os.path.join(training_args.root_output_dir, 'log.txt'), filemode='a',
+        format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S",
-        handlers=[logging.StreamHandler(sys.stdout)],
+        level=logging.INFO if is_main_process(training_args.local_rank) else logging.WARN, 
+        # handlers=[logging.StreamHandler(sys.stdout)],
     )
+    logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+    logger.setLevel(logging.INFO if is_main_process(training_args.local_rank) else logging.WARN)
+    logger.info(training_args.root_output_dir)
+    
 
     if training_args.should_log:
         # The default of training_args.log_level is passive, so we set log level at info here to have that default.
@@ -217,6 +332,16 @@ def main():
         + f"distributed training: {training_args.parallel_mode.value == 'distributed'}, 16-bits training: {training_args.fp16}"
     )
     logger.info(f"Training/evaluation parameters {training_args}")
+
+    # Setup output dir 
+    os.makedirs(training_args.root_output_dir, exist_ok=True)
+    training_args.output_dir = os.path.join(training_args.root_output_dir, "model")
+    training_args.logging_dir = os.path.join(training_args.root_output_dir, "log")
+    training_args.run_name = training_args.output_dir 
+
+    if "debug" in training_args.output_dir:
+        import ipdb 
+        ipdb.set_trace()
 
     # Detecting last checkpoint.
     last_checkpoint = None
@@ -310,6 +435,15 @@ def main():
         revision=model_args.model_revision,
         token=model_args.token,
         trust_remote_code=model_args.trust_remote_code,
+        apply_lora=model_args.apply_lora,
+        lora_type=model_args.lora_type, 
+        lora_module=model_args.lora_module, 
+        lora_alpha=model_args.lora_alpha,
+        lora_r=model_args.lora_r,
+        apply_adapter=model_args.apply_adapter,
+        adapter_type=model_args.adapter_type,
+        adapter_size=model_args.adapter_size,
+        reg_loss_wgt=model_args.reg_loss_wgt,
     )
     model = AutoModelForImageClassification.from_pretrained(
         model_args.model_name_or_path,
@@ -361,6 +495,63 @@ def main():
             ]
         )
 
+    # Replace with Elalora
+    trainable_params = []
+    if model_args.apply_lora:
+        if model_args.lora_path is not None:
+            lora_state_dict = torch.load(model_args.lora_path)
+            logger.info(f"Apply LoRA state dict from {model_args.lora_path}.")
+            logger.info(lora_state_dict.keys())
+            model.load_state_dict(lora_state_dict, strict=False)
+        trainable_params.append('lora')
+
+    if model_args.apply_adapter:
+        if model_args.adapter_path is not None:
+            adapter_state_dict = torch.load(os.path.join(model_args.adapter_path, 'pytorch_adapter.bin'))
+            head_state_dict = torch.load(os.path.join(model_args.adapter_path, 'pytorch_model_head.bin'))
+            added_state_dict = {}
+            for k, v in adapter_state_dict.items():
+                new_k = k.replace(data_args.task_name + '.', '').replace('adapter_down.0.', 'adapter_A.').replace('adapter_up.', 'adapter_B.').replace('.adapters.', '.adapter.')
+                added_state_dict[new_k] = v
+            for k, v in head_state_dict.items():
+                new_k = k.replace('heads.' + data_args.task_name + '.1', 'classifier.dense').replace('heads.' + data_args.task_name + '.4', 'classifier.out_proj')
+                added_state_dict[new_k] = v
+            logger.info(f"Apply adapter state dict from {model_args.adapter_path}.")
+            logger.info(added_state_dict.keys())
+            missing_keys, unexpected_keys = model.load_state_dict(added_state_dict, strict=False)
+            for missing_key in missing_keys:
+                assert 'adapter' not in missing_key, missing_key + ' is missed in the model'
+            assert len(unexpected_keys) == 0, 'Unexpected keys ' + str(unexpected_keys)
+        trainable_params.append('adapter')
+
+    if model_args.apply_bitfit:
+        trainable_params.append('bias')
+
+    num_param = 0 
+    breakpoint()
+    if len(trainable_params) > 0:
+        for name, param in model.named_parameters():
+            # @TODO change name to vit
+            if name.startswith('vit') or name.startswith('bit'):
+                param.requires_grad = False
+                for trainable_param in trainable_params:
+                    if trainable_param in name:
+                        param.requires_grad = True
+                        sub_num_param = 1 
+                        for dim in param.shape:
+                            sub_num_param *= dim  
+                        num_param += sub_num_param 
+                        break
+            else:
+                param.requires_grad = True
+    else:
+        for name, param in model.named_parameters():
+            sub_num_param = 1 
+            for dim in param.shape:
+                sub_num_param *= dim  
+            num_param += sub_num_param
+    logger.info("Number of Trainable Parameters: %d"%(int(num_param))) 
+
     def train_transforms(example_batch):
         """Apply _train_transforms across a batch."""
         example_batch["pixel_values"] = [
@@ -395,6 +586,28 @@ def main():
         # Set the validation transforms
         dataset["validation"].set_transform(val_transforms)
 
+    # Initialize the rankallocator
+    if model_args.lora_type == "svd" and model_args.apply_elalora:
+        rankallocator = RankAllocator(
+            model, 
+            lora_r=model_args.lora_r,
+            target_rank=model_args.target_rank,
+            init_warmup=model_args.init_warmup, 
+            final_warmup=model_args.final_warmup,
+            mask_interval=model_args.mask_interval, 
+            beta1=model_args.beta1, 
+            beta2=model_args.beta2, 
+            target_total_rank=model_args.target_total_rank, 
+            # tb_writter=tb_writter, 
+            tb_writter_loginterval=model_args.tb_writter_loginterval,
+            k=model_args.k,
+            b=model_args.b,
+            output_dir=training_args.root_output_dir,
+            enable_scheduler=model_args.enable_scheduler,
+        )
+    else:
+        rankallocator = None
+
     # Initialize our trainer
     trainer = Trainer(
         model=model,
@@ -404,6 +617,8 @@ def main():
         compute_metrics=compute_metrics,
         processing_class=image_processor,
         data_collator=collate_fn,
+        rankallocator=rankallocator,
+        model_args=model_args,
     )
 
     # Training
@@ -426,16 +641,16 @@ def main():
         trainer.save_metrics("eval", metrics)
 
     # Write model card and (optionally) push to hub
-    kwargs = {
-        "finetuned_from": model_args.model_name_or_path,
-        "tasks": "image-classification",
-        "dataset": data_args.dataset_name,
-        "tags": ["image-classification", "vision"],
-    }
-    if training_args.push_to_hub:
-        trainer.push_to_hub(**kwargs)
-    else:
-        trainer.create_model_card(**kwargs)
+    # kwargs = {
+    #     "finetuned_from": model_args.model_name_or_path,
+    #     "tasks": "image-classification",
+    #     "dataset": data_args.dataset_name,
+    #     "tags": ["image-classification", "vision"],
+    # }
+    # if training_args.push_to_hub:
+    #     trainer.push_to_hub(**kwargs)
+    # else:
+    #     trainer.create_model_card(**kwargs)
 
 
 if __name__ == "__main__":
