@@ -102,6 +102,19 @@ class ViTConfig(PretrainedConfig):
         num_channels=3,
         qkv_bias=True,
         encoder_stride=16,
+        apply_lora=False,
+        lora_type="frd",
+        lora_module="query,value", #query,key,value,intermediate,layer.output,attention.output
+        lora_alpha=None,
+        lora_r=None,
+        apply_adapter=False,
+        adapter_type=None,
+        adapter_size=None,
+        reg_loss_wgt=0.0,
+        masking_prob=0.0,
+        cls_token_id=1,
+        sep_token_id=2,
+        unk_token_id=3,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -120,6 +133,20 @@ class ViTConfig(PretrainedConfig):
         self.num_channels = num_channels
         self.qkv_bias = qkv_bias
         self.encoder_stride = encoder_stride
+
+        self.apply_lora = apply_lora
+        self.lora_type = lora_type
+        self.lora_module = lora_module 
+        self.lora_alpha = lora_alpha
+        self.lora_r = lora_r
+        self.apply_adapter = apply_adapter
+        self.adapter_type = adapter_type
+        self.adapter_size = adapter_size
+        self.reg_loss_wgt = reg_loss_wgt
+        self.masking_prob = masking_prob
+        self.cls_token_id = cls_token_id
+        self.sep_token_id = sep_token_id
+        self.unk_token_id = unk_token_id
 
 
 class ViTOnnxConfig(OnnxConfig):

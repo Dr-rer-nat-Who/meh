@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """PyTorch ViT model."""
-
+import loralib as lora
 import collections.abc
 import math
 from typing import Dict, List, Optional, Set, Tuple, Union
@@ -197,9 +197,31 @@ class ViTSelfAttention(nn.Module):
         self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
         self.all_head_size = self.num_attention_heads * self.attention_head_size
 
-        self.query = nn.Linear(config.hidden_size, self.all_head_size, bias=config.qkv_bias)
-        self.key = nn.Linear(config.hidden_size, self.all_head_size, bias=config.qkv_bias)
-        self.value = nn.Linear(config.hidden_size, self.all_head_size, bias=config.qkv_bias)
+        if getattr(config, "apply_lora", False) and "query" in config.lora_module and config.lora_type == "svd":
+            self.query = lora.SVDLinear(
+                config.hidden_size, self.all_head_size,
+                r=config.lora_r, lora_alpha=config.lora_alpha, merge_weights=False
+            )
+        else:
+            self.query = nn.Linear(config.hidden_size, self.all_head_size, bias=config.qkv_bias)
+
+        if getattr(config, "apply_lora", False) and "key" in config.lora_module and config.lora_type == "svd":
+            self.key = lora.SVDLinear(
+                config.hidden_size, self.all_head_size,
+                r=config.lora_r, lora_alpha=config.lora_alpha, merge_weights=False
+            )
+        else:
+            self.key = nn.Linear(config.hidden_size, self.all_head_size, bias=config.qkv_bias)
+
+        if getattr(config, "apply_lora", False) and "value" in config.lora_module and config.lora_type == "svd":
+            self.value = lora.SVDLinear(
+                config.hidden_size, self.all_head_size,
+                r=config.lora_r, lora_alpha=config.lora_alpha, merge_weights=False
+            )
+        else:
+            self.value = nn.Linear(config.hidden_size, self.all_head_size, bias=config.qkv_bias)
+
+        self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
@@ -297,9 +319,20 @@ class ViTSelfOutput(nn.Module):
     layernorm applied before each block.
     """
 
-    def __init__(self, config: ViTConfig) -> None:
+    def __init__(self, config) -> None:
         super().__init__()
-        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
+        if config.apply_lora and "attention.output" in config.lora_module:
+            if config.lora_type == "frd":
+                self.dense = lora.Linear(config.hidden_size, config.hidden_size, r=config.lora_r, 
+                                            lora_alpha=config.lora_alpha, merge_weights=False)
+            elif config.lora_type == "svd": 
+                self.dense = lora.SVDLinear(config.hidden_size, config.hidden_size, r=config.lora_r, 
+                                            lora_alpha=config.lora_alpha, merge_weights=False)
+            else:
+                raise ValueError("Unimplemented Lora Type: %s"%config.lora_type)
+        else:
+            self.dense = nn.Linear(config.hidden_size, config.hidden_size)
+
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, hidden_states: torch.Tensor, input_tensor: torch.Tensor) -> torch.Tensor:
@@ -357,7 +390,17 @@ class ViTSdpaAttention(ViTAttention):
 class ViTIntermediate(nn.Module):
     def __init__(self, config: ViTConfig) -> None:
         super().__init__()
-        self.dense = nn.Linear(config.hidden_size, config.intermediate_size)
+        if config.apply_lora and "intermediate" in config.lora_module:
+            if config.lora_type == "frd":
+                self.dense = lora.Linear(config.hidden_size, config.intermediate_size, r=config.lora_r, 
+                                            lora_alpha=config.lora_alpha, merge_weights=False)
+            elif config.lora_type == "svd": 
+                self.dense = lora.SVDLinear(config.hidden_size, config.intermediate_size, r=config.lora_r, 
+                                            lora_alpha=config.lora_alpha, merge_weights=False)
+            else:
+                raise ValueError("Unimplemented Lora Type: %s"%config.lora_type)
+        else:
+            self.dense = nn.Linear(config.hidden_size, config.intermediate_size)
         if isinstance(config.hidden_act, str):
             self.intermediate_act_fn = ACT2FN[config.hidden_act]
         else:
@@ -373,7 +416,17 @@ class ViTIntermediate(nn.Module):
 class ViTOutput(nn.Module):
     def __init__(self, config: ViTConfig) -> None:
         super().__init__()
-        self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
+        if config.apply_lora and "layer.output" in config.lora_module: 
+            if config.lora_type == "frd":
+                self.dense = lora.Linear(config.intermediate_size, config.hidden_size, r=config.lora_r, 
+                                            lora_alpha=config.lora_alpha, merge_weights=False)
+            elif config.lora_type == "svd": 
+                self.dense = lora.SVDLinear(config.intermediate_size, config.hidden_size, r=config.lora_r, 
+                                            lora_alpha=config.lora_alpha, merge_weights=False)
+            else:
+                raise ValueError("Unimplemented Lora Type: %s"%config.lora_type)
+        else:
+            self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, hidden_states: torch.Tensor, input_tensor: torch.Tensor) -> torch.Tensor:
@@ -522,8 +575,49 @@ class ViTPreTrainedModel(PreTrainedModel):
                 mean=0.0,
                 std=self.config.initializer_range,
             ).to(module.cls_token.dtype)
-
-
+        elif isinstance(module, ViTSelfAttention):
+            module.query.reset_parameters()
+            module.key.reset_parameters()
+            module.value.reset_parameters()
+            if hasattr(module.query, 'lora_A'):
+                module.query.lora_A.data.normal_(mean=0.0, std=self.config.initializer_range)
+            if hasattr(module.key, 'lora_A'):
+                module.key.lora_A.data.normal_(mean=0.0, std=self.config.initializer_range)
+            if hasattr(module.value, 'lora_A'):
+                module.value.lora_A.data.normal_(mean=0.0, std=self.config.initializer_range)
+            if hasattr(module.query, 'lora_B') and self.config.lora_type == "svd":
+                module.query.lora_B.data.normal_(mean=0.0, std=self.config.initializer_range)
+            if hasattr(module.key, 'lora_B') and self.config.lora_type == "svd":
+                module.key.lora_B.data.normal_(mean=0.0, std=self.config.initializer_range)
+            if hasattr(module.value, 'lora_B') and self.config.lora_type == "svd":
+                module.value.lora_B.data.normal_(mean=0.0, std=self.config.initializer_range)
+        elif isinstance(module, ViTIntermediate):
+            module.dense.reset_parameters()
+            module.dense.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
+            if module.dense.bias is not None: 
+                module.dense.bias.data.zero_() 
+            if hasattr(module.dense, "lora_A"):
+                module.dense.lora_A.data.normal_(mean=0.0, std=self.config.initializer_range) 
+            if hasattr(module.dense, "lora_B") and self.config.lora_type=="svd":
+                module.dense.lora_B.data.normal_(mean=0.0, std=self.config.initializer_range) 
+        elif isinstance(module, ViTOutput):
+            module.dense.reset_parameters()
+            module.dense.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
+            if module.dense.bias is not None:
+                module.dense.bias.data.zero_()
+            if hasattr(module.dense, "lora_A"):
+                module.dense.lora_A.data.normal_(mean=0.0, std=self.config.initializer_range)
+            if hasattr(module.dense, "lora_B") and self.config.lora_type == "svd":
+                module.dense.lora_B.data.normal_(mean=0.0, std=self.config.initializer_range)
+        elif isinstance(module, ViTOutput):
+            module.dense.reset_parameters()
+            module.dense.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
+            if module.dense.bias is not None:
+                module.dense.bias.data.zero_()
+            if hasattr(module.dense, "lora_A"):
+                module.dense.lora_A.data.normal_(mean=0.0, std=self.config.initializer_range)
+            if hasattr(module.dense, "lora_B") and self.config.lora_type == "svd":
+                module.dense.lora_B.data.normal_(mean=0.0, std=self.config.initializer_range)
 VIT_START_DOCSTRING = r"""
     This model is a PyTorch [torch.nn.Module](https://pytorch.org/docs/stable/nn.html#torch.nn.Module) subclass. Use it
     as a regular PyTorch Module and refer to the PyTorch documentation for all matter related to general usage and

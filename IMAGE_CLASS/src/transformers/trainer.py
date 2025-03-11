@@ -2653,20 +2653,44 @@ class Trainer:
                                     # Get the optimizer's current state
                                     optimizer_state = optimizer.state_dict()
 
-                                    # Reinitialize the optimizer
-                                    optimizer = type(optimizer)(model.parameters(), **optimizer.defaults)
+                                    # 如果优化器是 Accelerate 封装的优化器（具有 .optimizer 属性），则先获取底层优化器
+                                    if hasattr(optimizer, "optimizer"):
+                                        base_optimizer = optimizer.optimizer
+                                        # 过滤底层优化器构造函数接受的默认参数
+                                        base_init_params = inspect.signature(type(base_optimizer).__init__).parameters
+                                        valid_defaults = {k: v for k, v in base_optimizer.defaults.items() if k in base_init_params}
+                                        # 注意：将 model.parameters() 转为 list
+                                        new_base_optimizer = type(base_optimizer)(list(model.parameters()), **valid_defaults)
+                                        # 使用 Accelerate 的包装类重新包装底层优化器
+                                        new_optimizer = type(optimizer)(new_base_optimizer)
+                                    else:
+                                        optimizer_init_params = inspect.signature(type(optimizer).__init__).parameters
+                                        valid_defaults = {k: v for k, v in optimizer.defaults.items() if k in optimizer_init_params}
+                                        new_optimizer = type(optimizer)(list(model.parameters()), **valid_defaults)
 
-                                    # Update the optimizer state
-                                    new_optimizer_state = optimizer.state_dict()
+                                    # 用新优化器的状态字典更新，保持未改变参数的状态不变
+                                    new_optimizer_state = new_optimizer.state_dict()
                                     for param_id, state in optimizer_state['state'].items():
-                                        # Retain state for unchanged parameters
                                         if any(id(p) == param_id for p in unchanged_params):
                                             new_optimizer_state['state'][param_id] = state
 
-                                    # Load the updated state back into the optimizer
-                                    optimizer.load_state_dict(new_optimizer_state)
+                                    new_optimizer.load_state_dict(new_optimizer_state)
+                                    return new_optimizer
 
-                                    return optimizer
+                                    # # Reinitialize the optimizer
+                                    # optimizer = type(optimizer)(model.parameters(), **optimizer.defaults)
+
+                                    # # Update the optimizer state
+                                    # new_optimizer_state = optimizer.state_dict()
+                                    # for param_id, state in optimizer_state['state'].items():
+                                    #     # Retain state for unchanged parameters
+                                    #     if any(id(p) == param_id for p in unchanged_params):
+                                    #         new_optimizer_state['state'][param_id] = state
+
+                                    # # Load the updated state back into the optimizer
+                                    # optimizer.load_state_dict(new_optimizer_state)
+
+                                    # return optimizer
 
                             
                                 

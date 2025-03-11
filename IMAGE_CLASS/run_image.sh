@@ -11,20 +11,20 @@ python image-classification/run_image_classification.py \
     --target_rank 6  --lora_r 6  --lora_alpha 16 \
     --mask_interval 200 \
     --b 6 --k 2 \
-    --init_warmup 8000 --final_warmup 10000 --mask_interval 200 \
+    --init_warmup 0 --final_warmup 100 --mask_interval 10 \
     --beta1 0.85 --beta2 0.85 \
-    --lora_module q_proj,k_proj,v_proj,out_proj,fc1,fc2 \
+    --lora_module query,key,value,intermediate,layer.output,attention.output \
     --enable_scheduler \
     --tb_writter_loginterval 50000 \
     --learning_rate 2e-5 \
     --num_train_epochs 5 \
     --per_device_train_batch_size 8 \
     --per_device_eval_batch_size 8 \
-    --logging_strategy steps \
     --logging_steps 10 \
-    --eval_strategy epoch \
-    --save_strategy epoch \
+    --evaluation_strategy steps --eval_steps 3000 \
+    --save_strategy steps --save_steps 30000 \
     --load_best_model_at_end True \
     --save_total_limit 3 \
     --seed 1337 \
-    
+    --root_output_dir ./beans_outputs/ \
+    --overwrite_output_dir

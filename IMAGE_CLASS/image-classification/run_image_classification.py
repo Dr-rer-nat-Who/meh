@@ -124,6 +124,63 @@ class DataTrainingArguments:
         default="label",
         metadata={"help": "The name of the dataset column containing the labels. Defaults to 'label'."},
     )
+    root_output_dir: str = field(default="./ela_vit/")
+
+    def __post_init__(self):
+        if self.dataset_name is None and (self.train_dir is None and self.validation_dir is None):
+            raise ValueError(
+                "You must specify either a dataset name from the hub or a train and/or validation directory."
+            )
+
+
+@dataclass
+class ModelArguments:
+    """
+    Arguments pertaining to which model/config/tokenizer we are going to fine-tune from.
+    """
+
+    model_name_or_path: str = field(
+        default="google/vit-base-patch16-224-in21k",
+        metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"},
+    )
+    model_type: Optional[str] = field(
+        default=None,
+        metadata={"help": "If training from scratch, pass a model type from the list: " + ", ".join(MODEL_TYPES)},
+    )
+    config_name: Optional[str] = field(
+        default=None, metadata={"help": "Pretrained config name or path if not the same as model_name"}
+    )
+    cache_dir: Optional[str] = field(
+        default=None, metadata={"help": "Where do you want to store the pretrained models downloaded from s3"}
+    )
+    model_revision: str = field(
+        default="main",
+        metadata={"help": "The specific model version to use (can be a branch name, tag name or commit id)."},
+    )
+    image_processor_name: str = field(default=None, metadata={"help": "Name or path of preprocessor config."})
+    token: str = field(
+        default=None,
+        metadata={
+            "help": (
+                "The token to use as HTTP bearer authorization for remote files. If not specified, will use the token "
+                "generated when running `huggingface-cli login` (stored in `~/.huggingface`)."
+            )
+        },
+    )
+    trust_remote_code: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Whether to trust the execution of code from datasets/models defined on the Hub."
+                " This option should only be set to `True` for repositories you trust and in which you have read the"
+                " code, as it will execute code present on the Hub on your local machine."
+            )
+        },
+    )
+    ignore_mismatched_sizes: bool = field(
+        default=False,
+        metadata={"help": "Will enable to load a pretrained model whose head dimensions are different."},
+    )
     apply_lora: Optional[bool] = field(
         default=False,
         metadata={"help": "Whether to apply LoRA or not."},
@@ -229,62 +286,6 @@ class DataTrainingArguments:
         metadata={"help": "Whether to enable scheduler or not."},
     )
 
-    def __post_init__(self):
-        if self.dataset_name is None and (self.train_dir is None and self.validation_dir is None):
-            raise ValueError(
-                "You must specify either a dataset name from the hub or a train and/or validation directory."
-            )
-
-
-@dataclass
-class ModelArguments:
-    """
-    Arguments pertaining to which model/config/tokenizer we are going to fine-tune from.
-    """
-
-    model_name_or_path: str = field(
-        default="google/vit-base-patch16-224-in21k",
-        metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"},
-    )
-    model_type: Optional[str] = field(
-        default=None,
-        metadata={"help": "If training from scratch, pass a model type from the list: " + ", ".join(MODEL_TYPES)},
-    )
-    config_name: Optional[str] = field(
-        default=None, metadata={"help": "Pretrained config name or path if not the same as model_name"}
-    )
-    cache_dir: Optional[str] = field(
-        default=None, metadata={"help": "Where do you want to store the pretrained models downloaded from s3"}
-    )
-    model_revision: str = field(
-        default="main",
-        metadata={"help": "The specific model version to use (can be a branch name, tag name or commit id)."},
-    )
-    image_processor_name: str = field(default=None, metadata={"help": "Name or path of preprocessor config."})
-    token: str = field(
-        default=None,
-        metadata={
-            "help": (
-                "The token to use as HTTP bearer authorization for remote files. If not specified, will use the token "
-                "generated when running `huggingface-cli login` (stored in `~/.huggingface`)."
-            )
-        },
-    )
-    trust_remote_code: bool = field(
-        default=False,
-        metadata={
-            "help": (
-                "Whether to trust the execution of code from datasets/models defined on the Hub."
-                " This option should only be set to `True` for repositories you trust and in which you have read the"
-                " code, as it will execute code present on the Hub on your local machine."
-            )
-        },
-    )
-    ignore_mismatched_sizes: bool = field(
-        default=False,
-        metadata={"help": "Will enable to load a pretrained model whose head dimensions are different."},
-    )
-
 
 def main():
     # See all possible arguments in src/transformers/training_args.py
@@ -302,6 +303,31 @@ def main():
     # Sending telemetry. Tracking the example usage helps us better allocate resources to maintain them. The
     # information sent is the one passed as arguments along with your Python/PyTorch versions.
     send_example_telemetry("run_image_classification", model_args, data_args)
+    training_args.root_output_dir = data_args.root_output_dir
+    os.makedirs(training_args.root_output_dir, exist_ok=True)
+    training_args.output_dir = os.path.join(training_args.root_output_dir, "model")
+    training_args.logging_dir = os.path.join(training_args.root_output_dir, "log")
+    training_args.run_name = training_args.output_dir 
+
+
+    if "debug" in training_args.output_dir:
+        import ipdb 
+        ipdb.set_trace()
+
+    # Detecting last checkpoint.
+    last_checkpoint = None
+    if os.path.isdir(training_args.output_dir) and training_args.do_train and not training_args.overwrite_output_dir:
+        last_checkpoint = get_last_checkpoint(training_args.output_dir)
+        if last_checkpoint is None and len(os.listdir(training_args.output_dir)) > 0:
+            raise ValueError(
+                f"Output directory ({training_args.output_dir}) already exists and is not empty. "
+                "Use --overwrite_output_dir to overcome."
+            )
+        elif last_checkpoint is not None:
+            logger.info(
+                f"Checkpoint detected, resuming training at {last_checkpoint}. To avoid this behavior, change "
+                "the `--output_dir` or add `--overwrite_output_dir` to train from scratch."
+            )
 
     # Setup logging
     logging.basicConfig(
@@ -333,30 +359,6 @@ def main():
     )
     logger.info(f"Training/evaluation parameters {training_args}")
 
-    # Setup output dir 
-    os.makedirs(training_args.root_output_dir, exist_ok=True)
-    training_args.output_dir = os.path.join(training_args.root_output_dir, "model")
-    training_args.logging_dir = os.path.join(training_args.root_output_dir, "log")
-    training_args.run_name = training_args.output_dir 
-
-    if "debug" in training_args.output_dir:
-        import ipdb 
-        ipdb.set_trace()
-
-    # Detecting last checkpoint.
-    last_checkpoint = None
-    if os.path.isdir(training_args.output_dir) and training_args.do_train and not training_args.overwrite_output_dir:
-        last_checkpoint = get_last_checkpoint(training_args.output_dir)
-        if last_checkpoint is None and len(os.listdir(training_args.output_dir)) > 0:
-            raise ValueError(
-                f"Output directory ({training_args.output_dir}) already exists and is not empty. "
-                "Use --overwrite_output_dir to overcome."
-            )
-        elif last_checkpoint is not None and training_args.resume_from_checkpoint is None:
-            logger.info(
-                f"Checkpoint detected, resuming training at {last_checkpoint}. To avoid this behavior, change "
-                "the `--output_dir` or add `--overwrite_output_dir` to train from scratch."
-            )
 
     # Set seed before initializing model.
     set_seed(training_args.seed)
@@ -528,7 +530,7 @@ def main():
         trainable_params.append('bias')
 
     num_param = 0 
-    breakpoint()
+
     if len(trainable_params) > 0:
         for name, param in model.named_parameters():
             # @TODO change name to vit
@@ -652,6 +654,10 @@ def main():
     # else:
     #     trainer.create_model_card(**kwargs)
 
+    if rankallocator is not None and is_main_process(training_args.local_rank):
+        rank_pattern = rankallocator.get_rank_pattern()
+        with open(os.path.join(training_args.root_output_dir, "rank_pattern.json"), "w") as f:
+            json.dump(rank_pattern, f) 
 
 if __name__ == "__main__":
     main()
