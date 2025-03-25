@@ -3862,54 +3862,80 @@ class Trainer:
         if self.args.past_index >= 0:
             self._past = outputs[self.args.past_index]
 
-        if self.rankallocator is not None:
-            # If rankallocator is used, we need to allocate the loss based on elalora code
-            if labels is not None:
-                unwrapped_model = self.accelerator.unwrap_model(model)
-                if _is_peft_model(unwrapped_model):
-                    model_name = unwrapped_model.base_model.model._get_name()
-                else:
-                    model_name = unwrapped_model._get_name()
-                # User-defined compute_loss function
-                if self.compute_loss_func is not None:
-                    loss = self.compute_loss_func(outputs, labels, num_items_in_batch=num_items_in_batch)
-                elif model_name in MODEL_FOR_CAUSAL_LM_MAPPING_NAMES.values():
-                    loss = self.label_smoother(outputs, labels, shift_labels=True)
-                else:
-                    loss = self.label_smoother(outputs, labels)
+        if labels is not None:
+            unwrapped_model = self.accelerator.unwrap_model(model)
+            if _is_peft_model(unwrapped_model):
+                model_name = unwrapped_model.base_model.model._get_name()
             else:
-                if isinstance(outputs, dict) and "loss" not in outputs:
-                    raise ValueError(
-                        "The model did not return a loss from the inputs, only the following keys: "
-                        f"{','.join(outputs.keys())}. For reference, the inputs it received are {','.join(inputs.keys())}."
-                    )
-                # We don't use .loss here since the model may return tuples instead of ModelOutput.
-                loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
-
-            if (
-                self.args.average_tokens_across_devices
-                and (self.model_accepts_loss_kwargs or self.compute_loss_func)
-                and num_items_in_batch is not None
-            ):
-                loss *= self.accelerator.num_processes
-        else:
-            if labels is not None:
+                model_name = unwrapped_model._get_name()
+            # User-defined compute_loss function
+            if self.compute_loss_func is not None:
+                loss = self.compute_loss_func(outputs, labels, num_items_in_batch=num_items_in_batch)
+            elif model_name in MODEL_FOR_CAUSAL_LM_MAPPING_NAMES.values():
+                loss = self.label_smoother(outputs, labels, shift_labels=True)
+            else:
                 loss = self.label_smoother(outputs, labels)
+        else:
+            if isinstance(outputs, dict) and "loss" not in outputs:
+                raise ValueError(
+                    "The model did not return a loss from the inputs, only the following keys: "
+                    f"{','.join(outputs.keys())}. For reference, the inputs it received are {','.join(inputs.keys())}."
+                )
+            # We don't use .loss here since the model may return tuples instead of ModelOutput.
+            loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
+
+        if self.model_args and self.model_args.apply_lora and self.model_args.reg_orth_coef>0:
+            # Apply orthongonal regularization 
+            if self.model_args.lora_type=="frd": 
+                regu_loss = self.compute_frd_orth_regu(model)
+            elif self.model_args.lora_type=="svd":
+                regu_loss = self.compute_svd_orth_regu(model)
             else:
-                # We don't use .loss here since the model may return tuples instead of ModelOutput.
-                loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
-            if self.model_args and self.model_args.apply_lora and self.model_args.reg_orth_coef>0:
-                # Apply orthongonal regularization 
-                if self.model_args.lora_type=="frd": 
-                    regu_loss = self.compute_frd_orth_regu(model)
-                elif self.model_args.lora_type=="svd":
-                    regu_loss = self.compute_svd_orth_regu(model)
-                else:
-                    raise ValueError("Unimplemented Lora Type: %s"%self.model_args.lora_type)
-                loss = loss + self.model_args.reg_orth_coef * regu_loss
+                raise ValueError("Unimplemented Lora Type: %s"%self.model_args.lora_type)
+            loss = loss + self.model_args.reg_orth_coef * regu_loss
 
+        if (
+            self.args.average_tokens_across_devices
+            and (self.model_accepts_loss_kwargs or self.compute_loss_func)
+            and num_items_in_batch is not None
+        ):
+            loss *= self.accelerator.num_processes
         return (loss, outputs) if return_outputs else loss
+    
+    def compute_svd_orth_regu(self, model):
+        regu_loss = None 
+        num_param = 0 
+        for n,p in model.named_parameters():
+            if "lora_A" in n or "lora_B" in n:
+                para_cov = p @ p.T if "lora_A" in n else p.T @ p 
+                I = torch.eye(*para_cov.size(), out=torch.empty_like(para_cov))
+                I.requires_grad = False
+                num_param += 1
+                if regu_loss is None:
+                    regu_loss = torch.norm(para_cov-I, p="fro")
+                else:
+                    regu_loss += torch.norm(para_cov-I, p="fro") 
+        return regu_loss/num_param
 
+    def compute_frd_orth_regu(self, model):
+        regu_loss = None
+        num_param = 0
+        for n,p in model.named_parameters():
+            if "lora_" in n:
+                para_cov = p @ p.T if "lora_A" in n else p.T @ p 
+                norm_dim = 1 if "lora_A" in n else 0 
+                para_norm = p.norm(p="fro", dim=norm_dim) 
+                epsilon = 1e-30 #if para_norm.count_nonzero() != para_norm.numel()  else 1e-45
+                cov_coef = para_cov.abs() / (para_norm.view(1, -1) * para_norm.view(-1, 1) + epsilon)
+                d = cov_coef.shape[0]
+                orth_coef = (cov_coef.sum() - cov_coef.trace())/(d*d-d) 
+                num_param += 1
+                if regu_loss is None:
+                    regu_loss = orth_coef 
+                else:
+                    regu_loss += orth_coef
+        return regu_loss / num_param
+    
     def is_local_process_zero(self) -> bool:
         """
         Whether or not this process is the local (e.g., on one machine if training in a distributed fashion on several
