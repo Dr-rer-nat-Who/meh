@@ -18,6 +18,7 @@ import os
 import sys
 from dataclasses import dataclass, field
 from typing import Optional
+import json
 
 import evaluate
 import numpy as np

@@ -3910,11 +3910,11 @@ class Trainer:
                 para_cov = p @ p.T if "lora_A" in n else p.T @ p 
                 I = torch.eye(*para_cov.size(), out=torch.empty_like(para_cov))
                 I.requires_grad = False
-                num_param += 1
+                num_param = num_param + 1
                 if regu_loss is None:
                     regu_loss = torch.norm(para_cov-I, p="fro")
                 else:
-                    regu_loss += torch.norm(para_cov-I, p="fro") 
+                    regu_loss = regu_loss + torch.norm(para_cov-I, p="fro") 
         return regu_loss/num_param
 
     def compute_frd_orth_regu(self, model):
@@ -3929,11 +3929,11 @@ class Trainer:
                 cov_coef = para_cov.abs() / (para_norm.view(1, -1) * para_norm.view(-1, 1) + epsilon)
                 d = cov_coef.shape[0]
                 orth_coef = (cov_coef.sum() - cov_coef.trace())/(d*d-d) 
-                num_param += 1
+                num_param = num_param + 1
                 if regu_loss is None:
                     regu_loss = orth_coef 
                 else:
-                    regu_loss += orth_coef
+                    regu_loss = regu_loss + orth_coef
         return regu_loss / num_param
     
     def is_local_process_zero(self) -> bool:
