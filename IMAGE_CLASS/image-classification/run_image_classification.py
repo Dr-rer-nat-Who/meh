@@ -366,9 +366,21 @@ def main():
 
     # Initialize our dataset and prepare it for the 'image-classification' task.
     if data_args.dataset_name is not None:
+        # dataset = load_dataset(
+        #     data_args.dataset_name,
+        #     data_args.dataset_config_name,
+        #     cache_dir=model_args.cache_dir,
+        #     token=model_args.token,
+        #     trust_remote_code=model_args.trust_remote_code,
+        # )
         dataset = load_dataset(
-            data_args.dataset_name,
-            data_args.dataset_config_name,
+            "csv",
+            data_files={
+                "train": data_args.dataset_name+"train800.csv",
+                "validation": data_args.dataset_name + "val200.csv",
+                "test": data_args.dataset_name+"test.csv",
+            },
+            delimiter=",",
             cache_dir=model_args.cache_dir,
             token=model_args.token,
             trust_remote_code=model_args.trust_remote_code,
@@ -413,6 +425,17 @@ def main():
 
     # Prepare label mappings.
     # We'll include these in the model's config to get human readable labels in the Inference API.
+    from datasets import ClassLabel
+
+    label_field = dataset["train"].features[data_args.label_column_name]
+    if not hasattr(label_field, "names"):
+        print("Label feature is not a ClassLabel. Converting...")
+        # Count all unique label
+        unique_labels = sorted(set(dataset["train"][data_args.label_column_name]))
+        # cast to class label type
+        class_labels = ClassLabel(num_classes=len(unique_labels), names=[str(x) for x in unique_labels])
+        dataset = dataset.cast_column(data_args.label_column_name, class_labels)
+
     labels = dataset["train"].features[data_args.label_column_name].names
     label2id, id2label = {}, {}
     for i, label in enumerate(labels):
