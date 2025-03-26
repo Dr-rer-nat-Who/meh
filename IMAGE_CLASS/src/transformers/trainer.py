@@ -53,7 +53,7 @@ from huggingface_hub import ModelCard, create_repo, upload_folder
 from packaging import version
 from torch import nn
 from torch.utils.data import DataLoader, Dataset, IterableDataset, RandomSampler, SequentialSampler
-
+from torchvision import transforms
 from . import __version__
 from .configuration_utils import PretrainedConfig
 from .data.data_collator import DataCollator, DataCollatorWithPadding, default_data_collator
@@ -430,6 +430,8 @@ class Trainer:
         optimizer_cls_and_kwargs: Optional[Tuple[Type[torch.optim.Optimizer], Dict[str, Any]]] = None,
         preprocess_logits_for_metrics: Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
         rankallocator=None, model_args=None, tb_writter=None,
+        get_data_fn=None,
+        root_dir=None,
     ):
         if args is None:
             output_dir = "tmp_trainer"
@@ -464,6 +466,8 @@ class Trainer:
         self.model_args = model_args 
         self.tb_writter = tb_writter 
         self.create_accelerator_and_postprocess()
+        self.get_data_fn = get_data_fn
+        self.root_dir = root_dir
 
         # memory metrics - must set up as early as possible
         self._memory_tracker = TrainerMemoryTracker(self.args.skip_memory_metrics)
@@ -1009,7 +1013,7 @@ class Trainer:
         """
         if self.train_dataset is None:
             raise ValueError("Trainer: training requires a train_dataset.")
-
+        
         train_dataset = self.train_dataset
         data_collator = self.data_collator
         if is_datasets_available() and isinstance(train_dataset, datasets.Dataset):
@@ -1025,13 +1029,23 @@ class Trainer:
             "persistent_workers": self.args.dataloader_persistent_workers,
         }
 
-        if not isinstance(train_dataset, torch.utils.data.IterableDataset):
-            dataloader_params["sampler"] = self._get_train_sampler()
-            dataloader_params["drop_last"] = self.args.dataloader_drop_last
-            dataloader_params["worker_init_fn"] = seed_worker
-            dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
-
-        return self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params))
+        if self.get_data_fn is None:
+            if not isinstance(train_dataset, torch.utils.data.IterableDataset):
+                dataloader_params["sampler"] = self._get_train_sampler()
+                dataloader_params["drop_last"] = self.args.dataloader_drop_last
+                dataloader_params["worker_init_fn"] = seed_worker
+                dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
+                return self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params))
+        else:
+            train_loader, _ = self.get_data_fn(
+            name=self.root_dir,
+            evaluate=False,
+            batch_size=self._train_batch_size,
+            collate_fn=data_collator,
+            )
+            # 用 accelerate 对 DataLoader 进行包装
+            return self.accelerator.prepare(train_loader)
+        
 
     def _get_eval_sampler(self, eval_dataset: Dataset) -> Optional[torch.utils.data.Sampler]:
         if eval_dataset is None or not has_length(eval_dataset):
@@ -1122,22 +1136,31 @@ class Trainer:
             "pin_memory": self.args.dataloader_pin_memory,
             "persistent_workers": self.args.dataloader_persistent_workers,
         }
+        
+        if self.get_data_fn is None:
+            if not isinstance(eval_dataset, torch.utils.data.IterableDataset):
+                dataloader_params["sampler"] = self._get_eval_sampler(eval_dataset)
+                dataloader_params["drop_last"] = self.args.dataloader_drop_last
+                dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
 
-        if not isinstance(eval_dataset, torch.utils.data.IterableDataset):
-            dataloader_params["sampler"] = self._get_eval_sampler(eval_dataset)
-            dataloader_params["drop_last"] = self.args.dataloader_drop_last
-            dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
+            # accelerator.free_memory() will destroy the references, so
+            # we need to store the non-prepared version
+            eval_dataloader = DataLoader(eval_dataset, **dataloader_params)
+            if self.args.dataloader_persistent_workers:
+                if hasattr(self, "_eval_dataloaders"):
+                    self._eval_dataloaders[dataloader_key] = eval_dataloader
+                else:
+                    self._eval_dataloaders = {dataloader_key: eval_dataloader}
 
-        # accelerator.free_memory() will destroy the references, so
-        # we need to store the non-prepared version
-        eval_dataloader = DataLoader(eval_dataset, **dataloader_params)
-        if self.args.dataloader_persistent_workers:
-            if hasattr(self, "_eval_dataloaders"):
-                self._eval_dataloaders[dataloader_key] = eval_dataloader
-            else:
-                self._eval_dataloaders = {dataloader_key: eval_dataloader}
-
-        return self.accelerator.prepare(eval_dataloader)
+            return self.accelerator.prepare(eval_dataloader)
+        else:
+            _, eval_dataloader = self.get_data_fn(
+                name=self.root_dir,
+                evaluate=True,
+                batch_size=self.args.eval_batch_size,
+                collate_fn=data_collator
+            )
+            return self.accelerator.prepare(eval_dataloader)
 
     def get_test_dataloader(self, test_dataset: Dataset) -> DataLoader:
         """

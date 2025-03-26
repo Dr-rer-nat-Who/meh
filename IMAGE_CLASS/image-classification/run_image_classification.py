@@ -19,7 +19,7 @@ import sys
 from dataclasses import dataclass, field
 from typing import Optional
 import json
-
+from dataset_vtab import get_data
 import evaluate
 import numpy as np
 import torch
@@ -412,8 +412,8 @@ def main():
         )
 
     def collate_fn(examples):
-        pixel_values = torch.stack([example["pixel_values"] for example in examples])
-        labels = torch.tensor([example[data_args.label_column_name] for example in examples])
+        pixel_values = torch.stack([example[0] for example in examples])
+        labels = torch.tensor([example[1] for example in examples])
         return {"pixel_values": pixel_values, "labels": labels}
 
     # If we don't have a validation split, split off a percentage of train as validation.
@@ -645,6 +645,8 @@ def main():
         data_collator=collate_fn,
         rankallocator=rankallocator,
         model_args=model_args,
+        get_data_fn=get_data, # for vtab
+        root_dir=data_args.dataset_name, # for vtab
     )
 
     # Training

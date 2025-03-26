@@ -1,0 +1,24 @@
+python image-classification/run_image_classification.py \
+    --dataset_name /n/netscratch/kung_lab/Everyone/zma/vtab-1k/cifar/ \
+    --remove_unused_columns False \
+    --label_column_name label \
+    --do_train \
+    --do_eval \
+    --apply_lora --apply_elalora --lora_type svd \
+    --target_rank 8  --lora_r 8  --lora_alpha 16 \
+    --b 6 --k 2 \
+    --init_warmup 1000 --final_warmup 1000 --mask_interval 200 \
+    --beta1 0.85 --beta2 0.85 \
+    --lora_module query,key,value,intermediate,layer.output,attention.output \
+    --enable_scheduler \
+    --tb_writter_loginterval 50000 \
+    --learning_rate 1e-3 \
+    --num_train_epochs 100 \
+    --per_device_train_batch_size 8 \
+    --per_device_eval_batch_size 8 \
+    --logging_steps 100 \
+    --evaluation_strategy steps --eval_steps 1000 \
+    --save_total_limit 1 \
+    --seed 1337 \
+    --root_output_dir /n/netscratch/kung_lab/Everyone/zma/cifar_exps/CIFAR_outputs_1gpu_100epoch/ \
+    --overwrite_output_dir

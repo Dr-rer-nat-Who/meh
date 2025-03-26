@@ -61,7 +61,7 @@ class ImageFilelist(data.Dataset):
         return len(self.imlist)
 
 
-def get_data(name, evaluate=True, batch_size=64,few_shot=False,shot=1,seed=1,mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
+def get_data(name, evaluate=True, batch_size=64,collate_fn=None, few_shot=False,shot=1,seed=1,mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
     if few_shot:
         root_train = './data/few_shot/' + name + '/images/train/'
         root_val = './data/few_shot/' + name + '/images/test/'
@@ -99,25 +99,25 @@ def get_data(name, evaluate=True, batch_size=64,few_shot=False,shot=1,seed=1,mea
         train_loader = torch.utils.data.DataLoader(
             ImageFilelist(root=root_train, flist=trainval_flist,
                 transform=train_transform),
-            batch_size=batch_size, shuffle=True, drop_last=True,
+            batch_size=batch_size, shuffle=True, drop_last=True,collate_fn=collate_fn,
             num_workers=4, pin_memory=True)
 
         val_loader = torch.utils.data.DataLoader(
             ImageFilelist(root=root_val, flist=test_flist,
                 transform=val_transform),
-            batch_size=256, shuffle=False,
+            batch_size=256, shuffle=False,collate_fn=collate_fn,
             num_workers=4, pin_memory=True)
     else:
         train_loader = torch.utils.data.DataLoader(
             ImageFilelist(root=root_train, flist=train_flist,
                 transform=train_transform),
-            batch_size=batch_size, shuffle=True, drop_last=True,
+            batch_size=batch_size, shuffle=True, drop_last=True,collate_fn=collate_fn,
             num_workers=4, pin_memory=True)
 
         val_loader = torch.utils.data.DataLoader(
             ImageFilelist(root=root_val, flist=val_flist,
                 transform=val_transform),
-            batch_size=256, shuffle=False,
+            batch_size=256, shuffle=False,collate_fn=collate_fn,
             num_workers=4, pin_memory=True)
     return train_loader, val_loader
 
