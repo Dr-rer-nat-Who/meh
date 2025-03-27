@@ -586,15 +586,17 @@ class RankAllocator(object):
                 all_is_serializable = [item.tolist() if isinstance(item, torch.Tensor) else item for item in all_is]
                 json.dump(all_is_serializable, file)
 
+        rank_plot_boolean = True
         # record ranknum
-        if self.tb_writter is not None:                    
+        if rank_plot_boolean:
+            # breakpoint()                    
             for n, p in model.named_parameters():
                 if "lora_E" in n: 
                     # ranknum = (is_dict[n]!=0.0).sum().item() 
                     ranknum = (p != 0.0).sum().item()
                     # print(n,p)
                     # print("\n")
-                    self.tb_writter.add_scalar("Ranknum/%s"%(n,), ranknum, self.global_step) 
+                    # self.tb_writter.add_scalar("Ranknum/%s"%(n,), ranknum, self.global_step) 
                     self.rank_pattern[n] = ranknum
             # print(self.rank_pattern)
             # Define the directory path
@@ -606,6 +608,27 @@ class RankAllocator(object):
             
             model_start=next(iter(self.rank_pattern)).split(".")[0]    
             plot_rank(self.rank_pattern, image_path, 1, plotting_global_max, model_start)
+            
+        # # record ranknum
+        # if self.tb_writter is not None:                    
+        #     for n, p in model.named_parameters():
+        #         if "lora_E" in n: 
+        #             # ranknum = (is_dict[n]!=0.0).sum().item() 
+        #             ranknum = (p != 0.0).sum().item()
+        #             # print(n,p)
+        #             # print("\n")
+        #             self.tb_writter.add_scalar("Ranknum/%s"%(n,), ranknum, self.global_step) 
+        #             self.rank_pattern[n] = ranknum
+        #     # print(self.rank_pattern)
+        #     # Define the directory path
+        #     rank_distribution_dir = os.path.join(self.output_dir, "rank_plots")
+        #     os.makedirs(rank_distribution_dir, exist_ok=True)
+        #     image_path = os.path.join(rank_distribution_dir, f"step_{self.global_step}.png")
+            
+        #     plotting_global_max = max(10, self.lora_init_rank*2)
+            
+        #     model_start=next(iter(self.rank_pattern)).split(".")[0]    
+        #     plot_rank(self.rank_pattern, image_path, 1, plotting_global_max, model_start)
                             
 
         return mask_threshold
