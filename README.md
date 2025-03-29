@@ -12,10 +12,8 @@ There are several directories in this repo:
 * [IMAGE_CLASS/](IMAGE_CLASS) contains the implementation of ElaLoRA in ViT-B/16, which produces the results on the VTAB benchmark.
 
 
-## Setup Environment (NLU Example)
-This contains the setup procedures for NLU Task. Please see details of NLG_QA and IMAGE_CLASS in the README files of their folders.
-
-This repository contains the setup procedures for the NLU Task. For detailed instructions regarding [NLG_QA/](NLG_QA) and [IMAGE_CLASS/](IMAGE_CLASS), please refer to the respective \texttt{README} files located in their folders.
+## Setup Environment (NLU)
+This repository contains the setup procedures for the NLU Task, and NLG_QA follows the same procedure. For detailed instructions regarding [IMAGE_CLASS/](IMAGE_CLASS), please refer to the README files located in IMAGE_CLASS folders.
 
 ### Create and activate the conda env
 ```bash
