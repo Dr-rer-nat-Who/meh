@@ -19,3 +19,7 @@ NLU/src/transformers.egg-info/PKG-INFO
 NLU/src/transformers.egg-info/requires.txt
 NLU/src/transformers.egg-info/SOURCES.txt
 NLU/src/transformers.egg-info/top_level.txt
+
+
+# slurm scripts
+IMAGE_CLASS/slurm_scripts/
