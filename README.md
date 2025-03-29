@@ -1,16 +1,21 @@
 # ElaLoRA : 
-This is the implementation of CS242 project "ElaLoRA:" by Huandong Chang, Mingyuan Ma, and Zicheng Ma.
+This is the implementation of ElaLoRA: Elastic & Learnable Low-Rank Adaptation for Efficient Model Fine-Tuning.
 
 ## Repository Overview
 
 There are several directories in this repo:
 
 * [loralib/](loralib) contains the source code of the updated package `loralib`, which include our implementation of ElaLoRA ([loralib/elalora.py](loralib/loralib/elalora.py)) and needs to be installed to run the examples;
-* [NLU/](NLU) contains an example implementation of ElaLoRA in DeBERTaV3-base, which produces the results on the GLUE benchmark;
-* [NLU/src/transformers/trainer.py](NLU/src/transformers/trainer.py) contains the trainer to update ranks for ElaLoRA algorithm.
+* [NLU/](NLU) contains the implementation of ElaLoRA in DeBERTaV3-base, which produces the results on the GLUE benchmark;
+* [NLU/src/transformers/trainer.py](NLU/src/transformers/trainer.py) contains the trainer to update ranks for ElaLoRA algorithm;
+* [NLG_QA/](NLG_QA) contains the implementation of ElaLoRA in BART-base, which produces the results on the XSum benchmark;
+* [IMAGE_CLASS/](IMAGE_CLASS) contains the implementation of ElaLoRA in ViT-B/16, which produces the results on the VTAB benchmark.
 
 
-## Setup Environment
+## Setup Environment (NLU Example)
+This contains the setup procedures for NLU Task. Please see details of NLG_QA and IMAGE_CLASS in the README files of their folders.
+
+This repository contains the setup procedures for the NLU Task. For detailed instructions regarding [NLG_QA/](NLG_QA) and [IMAGE_CLASS/](IMAGE_CLASS), please refer to the respective \texttt{README} files located in their folders.
 
 ### Create and activate the conda env
 ```bash
