@@ -1,5 +1,5 @@
 # ElaLoRA : 
-This is the implementation of ElaLoRA: Elastic & Learnable Low-Rank Adaptation for Efficient Model Fine-Tuning.
+This is the implementation of [ElaLoRA: Elastic & Learnable Low-Rank Adaptation for Efficient Model Fine-Tuning](https://arxiv.org/abs/2504.00254).
 
 ## Repository Overview
 
