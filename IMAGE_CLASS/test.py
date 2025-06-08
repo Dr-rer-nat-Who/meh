@@ -150,5 +150,9 @@ if __name__ == '__main__':
         print(f"Sub-dataset {sub} Accuracy: {accuracy:.4f}")
     
     print("\n===== All Evaluation Results =====")
+    total_acc = 0
     for sub, acc in eval_results.items():
+        total_acc += acc
         print(f"{sub}: Accuracy = {acc:.4f}")
+
+    print(f"Avg accuracy is: {total_acc/len(eval_results.items())}")
