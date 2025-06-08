@@ -18,7 +18,7 @@ module load python/3.10.12-fasrc01
 source activate
 source activate IMAGE
 # ---------------------
-
+export WANDB_DISABLED=true
 
 python -c 'print("Hi Huandong. Your job is running!")'
 
