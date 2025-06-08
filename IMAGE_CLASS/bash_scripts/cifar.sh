@@ -1,24 +1,22 @@
-python image-classification/run_image_classification.py \
-    --dataset_name vtab-1k/cifar/ \
+python image-classification/run_image_classification_adalora.py \
+    --dataset_name /n/netscratch/kung_lab/Everyone/zma/vtab-1k/cifar/ \
     --remove_unused_columns False \
     --label_column_name label \
     --do_train \
     --do_eval \
-    --apply_lora --apply_elalora --lora_type svd \
-    --target_rank 8  --lora_r 8  --lora_alpha 16 \
-    --b 4 --k 2 \
-    --init_warmup 500 --final_warmup 4300 --mask_interval 300 \
+    --apply_lora --apply_adalora --lora_type svd \
+    --target_rank 8  --lora_r 12  --lora_alpha 16 \
+    --init_warmup 600 --final_warmup 3000 --mask_interval 200 \
     --beta1 0.85 --beta2 0.85 \
-    --lora_module query,key,value,intermediate,layer.output \
-    --enable_scheduler \
+    --lora_module query,key,value,intermediate,layer.output\
     --tb_writter_loginterval 50000 \
-    --learning_rate 3e-4 \
+    --learning_rate 1e-3 \
     --num_train_epochs 100 \
     --per_device_train_batch_size 16 \
     --per_device_eval_batch_size 32 \
     --logging_steps 100 \
     --evaluation_strategy steps --eval_steps 1000 \
     --save_total_limit 1 \
-    --seed 123 \
-    --root_output_dir /cifar_r8_100e \
+    --seed 423 \
+    --root_output_dir /n/netscratch/kung_lab/Everyone/zma/adalora_exps/CIFAR_outputs_1gpu_100epoch_seed423_600_3000/ \
     --overwrite_output_dir
